@@ -21,7 +21,7 @@ You need at least one. The installer auto-detects what's available.
 ## Install
 
 ```bash
-git clone https://github.com/youruser/ai-writing-toolkit.git
+git clone https://github.com/mcarruth/ai-writing-toolkit.git
 cd ai-writing-toolkit
 ./install.sh
 ```
