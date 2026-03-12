@@ -1,0 +1,540 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- Constants ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SKILLS_DIR="$REPO_ROOT/skills"
+
+# --- Defaults ---
+DEFAULT_BACKEND="kiro"
+DEFAULT_MODEL="claude-sonnet-4.6"
+
+# --- Config ---
+AIT_CONFIG_FILE="$HOME/.ait/config"
+
+read_config_val() {
+    local key="$1"
+    if [[ -f "$AIT_CONFIG_FILE" ]]; then
+        grep "^${key}=" "$AIT_CONFIG_FILE" 2>/dev/null | cut -d= -f2- || true
+    fi
+}
+
+load_config() {
+    local val
+    val=$(read_config_val output_dir)
+    val="${val/#\~/$HOME}"
+    AIT_OUTPUT_DIR="${AIT_OUTPUT_DIR:-$val}"
+    AIT_BACKEND="${AIT_BACKEND:-$(read_config_val backend)}"
+    AIT_BACKEND="${AIT_BACKEND:-$DEFAULT_BACKEND}"
+    AIT_MODEL="${AIT_MODEL:-$(read_config_val model)}"
+    AIT_MODEL="${AIT_MODEL:-$DEFAULT_MODEL}"
+}
+
+load_config
+
+# --- Shared functions ---
+
+require_backend() {
+    case "$AIT_BACKEND" in
+        kiro)
+            if ! command -v kiro-cli &>/dev/null; then
+                echo "Error: kiro-cli not found (backend=kiro)." >&2
+                echo "Install: npm install -g @amazon/kiro-cli" >&2
+                echo "Or switch backend: ait config backend claude-code" >&2
+                exit 1
+            fi
+            ;;
+        claude-code)
+            if ! command -v claude &>/dev/null; then
+                echo "Error: claude not found (backend=claude-code)." >&2
+                echo "Install: npm install -g @anthropic-ai/claude-code" >&2
+                echo "Or switch backend: ait config backend kiro" >&2
+                exit 1
+            fi
+            ;;
+        custom)
+            local cmd
+            cmd=$(read_config_val custom_command)
+            if [[ -z "$cmd" ]]; then
+                echo "Error: backend=custom but no custom_command configured." >&2
+                echo "Set it: ait config custom-command 'your-cli --flags'" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Error: unknown backend '$AIT_BACKEND'." >&2
+            echo "Supported: kiro, claude-code, custom" >&2
+            exit 1
+            ;;
+    esac
+}
+
+load_skill() {
+    local shared="$SKILLS_DIR/_shared/amazon-writing.md"
+    local skill="$SKILLS_DIR/$1/SKILL.md"
+    if [[ ! -f "$skill" ]]; then
+        echo "Error: skill not found: $1" >&2
+        exit 1
+    fi
+    SHARED_CONTENT=$(cat "$shared")
+    SKILL_CONTENT=$(cat "$skill")
+}
+
+append_context() {
+    local prompt="$1"
+    shift
+    for ctx in "$@"; do
+        if [[ ! -f "$ctx" ]]; then
+            echo "Warning: context file not found: $ctx" >&2
+            continue
+        fi
+        prompt="${prompt}
+
+--- Context: $(basename "$ctx") ---
+$(cat "$ctx")
+--- End Context ---"
+    done
+    printf '%s' "$prompt"
+}
+
+run_llm() {
+    local prompt="$1"
+    local output_file="$2"
+
+    AIT_TMPFILE=$(mktemp /tmp/ait-XXXXXX.txt)
+    trap 'rm -f "$AIT_TMPFILE"' EXIT
+    printf '%s\n' "$prompt" > "$AIT_TMPFILE"
+
+    run_backend "$AIT_TMPFILE" \
+        | if [[ -n "$output_file" ]]; then
+            mkdir -p "$(dirname "$output_file")"
+            tee "$output_file" > /dev/null && echo "Saved: $output_file" >&2
+        else
+            cat
+        fi
+}
+
+run_backend() {
+    local infile="$1"
+    case "$AIT_BACKEND" in
+        kiro)
+            cat "$infile" \
+                | kiro-cli chat --no-interactive --trust-all-tools --wrap never --model "$AIT_MODEL" 2>&1 \
+                | perl -pe 's/\x1b\[[0-9;?]*[a-zA-Z]//g' \
+                | grep -v "▸.*Credits:" \
+                | grep -v "All tools are now trusted" \
+                | grep -v "Agents can sometimes do unexpected" \
+                | grep -v "kiro.dev/docs" \
+                | grep -v "^Running tool " \
+                | grep -v "^ ⋮" \
+                | grep -v "^ - Completed in" \
+                | grep -v "^> " \
+                | sed '/^$/N;/^\n$/d'
+            ;;
+        claude-code)
+            claude -p --model "$AIT_MODEL" < "$infile" 2>/dev/null
+            ;;
+        custom)
+            local cmd
+            cmd=$(read_config_val custom_command)
+            eval "$cmd" < "$infile" 2>/dev/null
+            ;;
+    esac
+}
+
+slugify() {
+    echo "$1" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '-' | sed 's/^-//;s/-$//'
+}
+
+auto_output() {
+    local cmd="$1" topic="$2"
+    if [[ -n "${AIT_OUTPUT_DIR:-}" ]]; then
+        echo "${AIT_OUTPUT_DIR}/${cmd}/$(slugify "$topic").md"
+    fi
+}
+
+resolve_output() {
+    local cmd="$1" topic="$2"
+    if [[ "$OUTPUT_FILE" == */ ]]; then
+        OUTPUT_FILE="${OUTPUT_FILE}$(slugify "$topic").md"
+    elif [[ -z "$OUTPUT_FILE" ]]; then
+        OUTPUT_FILE=$(auto_output "$cmd" "$topic")
+    fi
+}
+
+parse_context_and_output() {
+    CONTEXT_FILES=()
+    OUTPUT_FILE=""
+    POSITIONAL=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --context|-c) CONTEXT_FILES+=("$2"); shift 2 ;;
+            --output|-o) OUTPUT_FILE="$2"; shift 2 ;;
+            --help|-h) return 1 ;;
+            -*) echo "Unknown flag: $1" >&2; return 1 ;;
+            *)
+                if [[ -z "$POSITIONAL" ]]; then
+                    POSITIONAL="$1"
+                else
+                    echo "Unexpected argument: $1" >&2
+                    return 1
+                fi
+                shift
+                ;;
+        esac
+    done
+}
+
+# --- Subcommand: research ---
+
+cmd_research() {
+    local usage="Usage: ait research <topic> [--context <file>]... [--output <file>]
+
+  <topic>           Topic to research (quote multi-word topics)
+  -c, --context     Inject a context file (repeatable)
+  -o, --output      Write output to file (default: stdout)
+
+Examples:
+  ait research \"transformer attention mechanisms\"
+  ait research \"LLM agent memory architectures\" -o research.md
+  ait research \"vector DB tradeoffs\" -c requirements.md"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_output "research" "$POSITIONAL"
+
+    load_skill "research-deep"
+    local prompt="${SHARED_CONTENT}
+
+---
+
+${SKILL_CONTENT}
+
+---
+
+Topic: ${POSITIONAL}"
+
+    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
+    prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the research brief directly. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
+
+    run_llm "$prompt" "$OUTPUT_FILE"
+}
+
+# --- Subcommand: design ---
+
+cmd_design() {
+    local usage="Usage: ait design <problem-statement> [--context <file>]... [--output <file>]
+
+  <problem-statement>  What you need to design (quote it)
+  -c, --context        Inject a context file (repeatable)
+  -o, --output         Write output to file (default: stdout)
+
+Examples:
+  ait design \"how to store conversation history for LLM agents at 10k RPS\"
+  ait design \"sub-agent memory scoping\" -c research.md -o design.md"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_output "design" "$POSITIONAL"
+
+    load_skill "design-options"
+    local prompt="${SHARED_CONTENT}
+
+---
+
+${SKILL_CONTENT}
+
+---
+
+Problem statement: ${POSITIONAL}"
+
+    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
+    prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the design options document directly. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
+
+    run_llm "$prompt" "$OUTPUT_FILE"
+}
+
+# --- Subcommand: hld ---
+
+cmd_hld() {
+    local usage="Usage: ait hld <raw-thoughts> [--context <file>]... [--output <file>]
+
+  <raw-thoughts>    Your notes, description, or design intent (quote it)
+  -c, --context     Inject a context file (repeatable)
+  -o, --output      Write output to file (default: stdout)
+
+Examples:
+  ait hld \"build a feedback pipeline that captures conversation logs and writes to S3\"
+  ait hld \"going with centralized memory store\" -c research.md -c design.md -o hld.md"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_output "hld" "$POSITIONAL"
+
+    load_skill "hld-draft"
+    local prompt="${SHARED_CONTENT}
+
+---
+
+${SKILL_CONTENT}
+
+---
+
+Engineer's notes and intent: ${POSITIONAL}"
+
+    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
+    prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the full HLD document directly. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly in the relevant section as a decision to confirm."
+
+    run_llm "$prompt" "$OUTPUT_FILE"
+}
+
+# --- Subcommand: review ---
+
+cmd_review() {
+    local usage="Usage: ait review <hld-file> [--context <file>]... [--output <file>]
+
+  <hld-file>        Path to the HLD markdown file to review
+  -c, --context     Inject a context file (repeatable)
+  -o, --output      Write output to file (default: stdout)
+
+Examples:
+  ait review hld.md
+  ait review hld.md -c research.md -c design.md -o review-feedback.md"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_output "review" "$(basename "$POSITIONAL" .md)"
+    if [[ ! -f "$POSITIONAL" ]]; then
+        echo "Error: file not found: $POSITIONAL" >&2
+        exit 1
+    fi
+
+    load_skill "review-prep"
+    local prompt="${SHARED_CONTENT}
+
+---
+
+${SKILL_CONTENT}
+
+---
+
+HLD document to review:
+
+$(cat "$POSITIONAL")"
+
+    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
+    prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the review directly. Do not ask for clarification or confirmation."
+
+    run_llm "$prompt" "$OUTPUT_FILE"
+}
+
+# --- Subcommand: one-pager ---
+
+cmd_one_pager() {
+    local usage="Usage: ait one-pager <prompt> [--context <file>]... [--output <file>]
+
+  <prompt>          What the one-pager should cover (quote multi-word prompts)
+  -c, --context     Inject a context file (repeatable)
+  -o, --output      Write output to file (default: stdout)
+
+Examples:
+  ait one-pager \"summarize our Q2 roadmap for partner teams\"
+  ait one-pager \"feature tracks after launch\" -c roadmap.md -o one-pager.md"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_output "one-pager" "$POSITIONAL"
+
+    load_skill "one-pager"
+    local prompt="${SHARED_CONTENT}
+
+---
+
+${SKILL_CONTENT}
+
+---
+
+${POSITIONAL}"
+
+    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
+    prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the one-pager directly. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
+
+    run_llm "$prompt" "$OUTPUT_FILE"
+}
+
+# --- Subcommand: exec-comms ---
+
+cmd_exec_comms() {
+    local usage="Usage: ait exec-comms <message-or-file> [--context <file>]... [--output <file>]
+
+  <message-or-file>  Your draft message or path to a file (quote multi-word messages)
+  -c, --context      Inject a context file (repeatable)
+  -o, --output       Write output to file (default: stdout)
+
+Examples:
+  ait exec-comms \"We had an outage today for 55 minutes due to memory issues\"
+  ait exec-comms draft-email.txt -c roadmap.md -o exec-update.md"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+
+    local auto_name="$POSITIONAL"
+    [[ -f "$POSITIONAL" ]] && auto_name="$(basename "$POSITIONAL" .md)"
+    resolve_output "exec-comms" "$auto_name"
+
+    local message
+    if [[ -f "$POSITIONAL" ]]; then
+        message=$(cat "$POSITIONAL")
+    else
+        message="$POSITIONAL"
+    fi
+
+    load_skill "exec-comms"
+    local prompt="${SHARED_CONTENT}
+
+---
+
+${SKILL_CONTENT}
+
+---
+
+Engineer's draft communication:
+
+${message}"
+
+    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
+    prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the FIR-formatted communication directly. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
+
+    run_llm "$prompt" "$OUTPUT_FILE"
+}
+
+# --- Subcommand: config ---
+
+cmd_config() {
+    local usage="Usage: ait config <key> [value]
+
+Keys:
+  output-dir [path]         Default output directory
+  backend [name]            LLM backend: kiro, claude-code, custom
+  model [name]              Model name (default: claude-sonnet-4.6)
+  custom-command [cmd]      Shell command for custom backend (reads stdin)
+
+Use --clear to remove a value.
+
+Examples:
+  ait config backend claude-code
+  ait config model claude-sonnet-4-20250514
+  ait config output-dir ~/work/ait
+  ait config custom-command 'my-llm-cli --no-interactive'"
+
+    if [[ $# -eq 0 ]]; then echo "$usage" >&2; exit 1; fi
+
+    local key="$1"
+    local config_key
+
+    case "$key" in
+        output-dir)      config_key="output_dir" ;;
+        backend)         config_key="backend" ;;
+        model)           config_key="model" ;;
+        custom-command)  config_key="custom_command" ;;
+        *) echo "$usage" >&2; exit 1 ;;
+    esac
+
+    mkdir -p "$(dirname "$AIT_CONFIG_FILE")"
+    touch "$AIT_CONFIG_FILE"
+
+    if [[ $# -eq 1 ]]; then
+        local val
+        val=$(read_config_val "$config_key")
+        echo "${val:-<not set>}"
+    elif [[ "$2" == "--clear" ]]; then
+        sed -i '' "/^${config_key}=/d" "$AIT_CONFIG_FILE"
+        echo "${key} cleared."
+    else
+        if grep -q "^${config_key}=" "$AIT_CONFIG_FILE" 2>/dev/null; then
+            sed -i '' "s|^${config_key}=.*|${config_key}=$2|" "$AIT_CONFIG_FILE"
+        else
+            echo "${config_key}=$2" >> "$AIT_CONFIG_FILE"
+        fi
+        echo "${key} set to $2"
+    fi
+}
+
+# --- Main dispatcher ---
+
+main_usage() {
+    cat >&2 <<EOF
+ait — AI Writing Toolkit
+
+Usage: ait <command> [options]
+
+Commands:
+  research        Research brief on any topic
+  design          Three differentiated architectural options
+  hld             High-level design document from raw notes
+  review          Stress-test a draft HLD
+  one-pager       One-page summary for stakeholders
+  exec-comms      Transform technical comms into FIR format
+  config          View or set configuration
+
+Common flags:
+  -c, --context <file>   Inject a context file (repeatable)
+  -o, --output <file>    Write output to file (default: stdout)
+  -h, --help             Show help
+
+Backend: $AIT_BACKEND (model: $AIT_MODEL)
+  Change with: ait config backend <kiro|claude-code|custom>
+
+Examples:
+  ait research "agent memory architectures" -o research.md
+  ait design "memory scoping" -c research.md -o design.md
+  ait hld "going with option 2" -c research.md -c design.md -o hld.md
+  ait review hld.md -o review-feedback.md
+EOF
+    exit 1
+}
+
+if [[ $# -eq 0 ]]; then
+    main_usage
+fi
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+    research)        require_backend; cmd_research "$@" ;;
+    design)          require_backend; cmd_design "$@" ;;
+    hld)             require_backend; cmd_hld "$@" ;;
+    review)          require_backend; cmd_review "$@" ;;
+    one-pager)       require_backend; cmd_one_pager "$@" ;;
+    exec-comms)      require_backend; cmd_exec_comms "$@" ;;
+    config)          cmd_config "$@" ;;
+    --help|-h)       main_usage ;;
+    *) echo "Unknown command: $COMMAND" >&2; echo "" >&2; main_usage ;;
+esac
