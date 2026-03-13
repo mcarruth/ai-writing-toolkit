@@ -20,12 +20,7 @@ You need at least one. The installer auto-detects what's available.
 
 ## Prerequisites
 
-At least one LLM backend CLI is required (see table above). The Claude Code and Kiro CLI backends install via `npm`, which requires [Node.js](https://nodejs.org) (v18 or later recommended). If you don't have Node, install it from nodejs.org or via a version manager like `nvm`:
-
-```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-nvm install --lts
-```
+At least one LLM backend CLI is required (see table above). The Claude Code backend installs via `npm`, which requires Node.js. If you don't have it, download it from [nodejs.org/en/download](https://nodejs.org/en/download).
 
 ---
 
