@@ -490,10 +490,12 @@ open('$AIT_CONFIG_FILE', 'w').write(content)
         echo "${key} cleared."
     else
         if grep -q "^${config_key}=" "$AIT_CONFIG_FILE" 2>/dev/null; then
-            python3 -c "
-import re
+            AIT_CONFIG_KEY="${config_key}" AIT_CONFIG_VAL="$2" python3 -c "
+import re, os
+key = os.environ['AIT_CONFIG_KEY']
+val = os.environ['AIT_CONFIG_VAL']
 content = open('$AIT_CONFIG_FILE').read()
-content = re.sub(r'^${config_key}=.*', '${config_key}=$2', content, flags=re.MULTILINE)
+content = re.sub(r'^' + re.escape(key) + r'=.*', key + '=' + val, content, flags=re.MULTILINE)
 open('$AIT_CONFIG_FILE', 'w').write(content)
 "
         else

@@ -92,10 +92,11 @@ echo ""
 read -rp "  Model [${EXISTING_MODEL:-$DEFAULT_MODEL}]: " INPUT_MODEL || true
 MODEL="${INPUT_MODEL:-${EXISTING_MODEL:-$DEFAULT_MODEL}}"
 if grep -q '^model=' "$AIT_CONFIG_FILE" 2>/dev/null; then
-    python3 -c "
-import re, sys
+    AIT_CONFIG_VAL="$MODEL" python3 -c "
+import re, os
+val = os.environ['AIT_CONFIG_VAL']
 content = open('$AIT_CONFIG_FILE').read()
-content = re.sub(r'^model=.*', 'model=$MODEL', content, flags=re.MULTILINE)
+content = re.sub(r'^model=.*', 'model=' + val, content, flags=re.MULTILINE)
 open('$AIT_CONFIG_FILE', 'w').write(content)
 "
 else
@@ -115,10 +116,11 @@ read -rp "  Output directory${EXISTING_DIR:+ [$EXISTING_DIR]}: " INPUT_DIR || tr
 OUTPUT_DIR="${INPUT_DIR:-$EXISTING_DIR}"
 
 if grep -q '^output_dir=' "$AIT_CONFIG_FILE" 2>/dev/null; then
-    python3 -c "
-import re, sys
+    AIT_CONFIG_VAL="$OUTPUT_DIR" python3 -c "
+import re, os
+val = os.environ['AIT_CONFIG_VAL']
 content = open('$AIT_CONFIG_FILE').read()
-content = re.sub(r'^output_dir=.*', 'output_dir=$OUTPUT_DIR', content, flags=re.MULTILINE)
+content = re.sub(r'^output_dir=.*', 'output_dir=' + val, content, flags=re.MULTILINE)
 open('$AIT_CONFIG_FILE', 'w').write(content)
 "
 else
