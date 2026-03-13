@@ -92,6 +92,18 @@ append_context() {
     local prompt="$1"
     shift
     for ctx in "$@"; do
+        if [[ ! -f "$ctx" ]] && [[ -n "${AIT_OUTPUT_DIR:-}" ]] && [[ "$ctx" == "$(basename "$ctx")" ]]; then
+            local match_count match_path
+            match_count=$(find "$AIT_OUTPUT_DIR" -name "$ctx" -type f | wc -l | tr -d ' ')
+            if [[ "$match_count" -eq 1 ]]; then
+                match_path=$(find "$AIT_OUTPUT_DIR" -name "$ctx" -type f)
+                ctx="$match_path"
+            elif [[ "$match_count" -gt 1 ]]; then
+                echo "Warning: ambiguous context file '$ctx' — multiple matches in output-dir, skipping:" >&2
+                find "$AIT_OUTPUT_DIR" -name "$ctx" -type f | sed 's/^/  /' >&2
+                continue
+            fi
+        fi
         if [[ ! -f "$ctx" ]]; then
             echo "Warning: context file not found: $ctx" >&2
             continue
