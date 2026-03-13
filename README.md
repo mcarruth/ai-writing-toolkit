@@ -11,7 +11,7 @@ All commands go through a single entrypoint: `ait`.
 | Backend | CLI | Install |
 |---|---|---|
 | Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` |
-| Kiro CLI | `kiro-cli` | `npm install -g @amazon/kiro-cli` |
+| Kiro CLI | `kiro-cli` | `curl -fsSL https://cli.kiro.dev/install \| bash` |
 | Custom | any CLI that reads stdin | configure with `ait config` |
 
 You need at least one. The installer auto-detects what's available.
@@ -26,7 +26,7 @@ cd ai-writing-toolkit
 ./install.sh
 ```
 
-`install.sh` makes `ait` executable, adds `bin/` to your PATH, detects your LLM backend, and prompts you to set a default output directory. Open a new terminal when it finishes, or run `source ~/.zshrc`.
+`install.sh` makes `ait` executable, adds `bin/` to your PATH, detects your LLM backend, and prompts you to configure your model and default output directory. Open a new terminal when it finishes, or run `source ~/.zshrc`.
 
 ---
 
@@ -51,7 +51,7 @@ AIT_BACKEND=claude-code ait research "some topic"
 ### Model
 
 ```bash
-ait config model claude-sonnet-4-20250514   # set model
+ait config model claude-sonnet-4-6   # set model
 ait config model                             # show current
 ait config model --clear                     # reset to default
 ```

@@ -22,7 +22,7 @@ if [[ -z "$FOUND_BACKEND" ]]; then
     echo "⚠ No supported LLM CLI found."
     echo "  Install one of:"
     echo "    npm install -g @anthropic-ai/claude-code"
-    echo "    npm install -g @amazon/kiro-cli"
+    echo "    curl -fsSL https://cli.kiro.dev/install | bash"
     echo "  Or configure a custom backend after install:"
     echo "    ait config backend custom"
     echo "    ait config custom-command 'your-cli --flags'"
@@ -76,7 +76,7 @@ mkdir -p "$AIT_CONFIG_DIR"
 touch "$AIT_CONFIG_FILE"
 
 # Backend
-EXISTING_BACKEND=$(grep '^backend=' "$AIT_CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
+EXISTING_BACKEND=$(grep '^backend=' "$AIT_CONFIG_FILE" 2>/dev/null | cut -d= -f2- || true)
 if [[ -z "$EXISTING_BACKEND" ]]; then
     echo "backend=${FOUND_BACKEND}" >> "$AIT_CONFIG_FILE"
     echo "✓ Backend set to $FOUND_BACKEND"
@@ -84,19 +84,43 @@ else
     echo "✓ Backend already configured: $EXISTING_BACKEND"
 fi
 
+# Model
+DEFAULT_MODEL="claude-sonnet-4-6"
+[[ "$FOUND_BACKEND" == "kiro" ]] && DEFAULT_MODEL="claude-sonnet-4.5"
+EXISTING_MODEL=$(grep '^model=' "$AIT_CONFIG_FILE" 2>/dev/null | cut -d= -f2- || true)
+echo ""
+read -rp "  Model [${EXISTING_MODEL:-$DEFAULT_MODEL}]: " INPUT_MODEL || true
+MODEL="${INPUT_MODEL:-${EXISTING_MODEL:-$DEFAULT_MODEL}}"
+if grep -q '^model=' "$AIT_CONFIG_FILE" 2>/dev/null; then
+    python3 -c "
+import re, sys
+content = open('$AIT_CONFIG_FILE').read()
+content = re.sub(r'^model=.*', 'model=$MODEL', content, flags=re.MULTILINE)
+open('$AIT_CONFIG_FILE', 'w').write(content)
+"
+else
+    echo "model=${MODEL}" >> "$AIT_CONFIG_FILE"
+fi
+echo "✓ Model set to $MODEL"
+
 # Output directory
 echo ""
 echo "  When set, ait auto-saves output organized by command type."
 echo "  Leave blank to output to stdout by default."
 echo ""
 
-EXISTING_DIR=$(grep '^output_dir=' "$AIT_CONFIG_FILE" 2>/dev/null | cut -d= -f2-)
+EXISTING_DIR=$(grep '^output_dir=' "$AIT_CONFIG_FILE" 2>/dev/null | cut -d= -f2- || true)
 
-read -rp "  Output directory${EXISTING_DIR:+ [$EXISTING_DIR]}: " INPUT_DIR
+read -rp "  Output directory${EXISTING_DIR:+ [$EXISTING_DIR]}: " INPUT_DIR || true
 OUTPUT_DIR="${INPUT_DIR:-$EXISTING_DIR}"
 
 if grep -q '^output_dir=' "$AIT_CONFIG_FILE" 2>/dev/null; then
-    sed -i '' "s|^output_dir=.*|output_dir=${OUTPUT_DIR}|" "$AIT_CONFIG_FILE"
+    python3 -c "
+import re, sys
+content = open('$AIT_CONFIG_FILE').read()
+content = re.sub(r'^output_dir=.*', 'output_dir=$OUTPUT_DIR', content, flags=re.MULTILINE)
+open('$AIT_CONFIG_FILE', 'w').write(content)
+"
 else
     echo "output_dir=${OUTPUT_DIR}" >> "$AIT_CONFIG_FILE"
 fi

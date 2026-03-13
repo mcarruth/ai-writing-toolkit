@@ -8,7 +8,8 @@ SKILLS_DIR="$REPO_ROOT/skills"
 
 # --- Defaults ---
 DEFAULT_BACKEND="kiro"
-DEFAULT_MODEL="claude-sonnet-4.6"
+DEFAULT_MODEL_CLAUDE="claude-sonnet-4-6"
+DEFAULT_MODEL_KIRO="claude-sonnet-4.5"
 
 # --- Config ---
 AIT_CONFIG_FILE="$HOME/.ait/config"
@@ -28,7 +29,13 @@ load_config() {
     AIT_BACKEND="${AIT_BACKEND:-$(read_config_val backend)}"
     AIT_BACKEND="${AIT_BACKEND:-$DEFAULT_BACKEND}"
     AIT_MODEL="${AIT_MODEL:-$(read_config_val model)}"
-    AIT_MODEL="${AIT_MODEL:-$DEFAULT_MODEL}"
+    if [[ -z "$AIT_MODEL" ]]; then
+        case "$AIT_BACKEND" in
+            kiro)        AIT_MODEL="$DEFAULT_MODEL_KIRO" ;;
+            claude-code) AIT_MODEL="$DEFAULT_MODEL_CLAUDE" ;;
+            *)           AIT_MODEL="$DEFAULT_MODEL_CLAUDE" ;;
+        esac
+    fi
 }
 
 load_config
@@ -474,11 +481,21 @@ Examples:
         val=$(read_config_val "$config_key")
         echo "${val:-<not set>}"
     elif [[ "$2" == "--clear" ]]; then
-        sed -i '' "/^${config_key}=/d" "$AIT_CONFIG_FILE"
+        python3 -c "
+import re
+content = open('$AIT_CONFIG_FILE').read()
+content = re.sub(r'^${config_key}=.*\n?', '', content, flags=re.MULTILINE)
+open('$AIT_CONFIG_FILE', 'w').write(content)
+"
         echo "${key} cleared."
     else
         if grep -q "^${config_key}=" "$AIT_CONFIG_FILE" 2>/dev/null; then
-            sed -i '' "s|^${config_key}=.*|${config_key}=$2|" "$AIT_CONFIG_FILE"
+            python3 -c "
+import re
+content = open('$AIT_CONFIG_FILE').read()
+content = re.sub(r'^${config_key}=.*', '${config_key}=$2', content, flags=re.MULTILINE)
+open('$AIT_CONFIG_FILE', 'w').write(content)
+"
         else
             echo "${config_key}=$2" >> "$AIT_CONFIG_FILE"
         fi
