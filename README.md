@@ -175,6 +175,8 @@ ait config output-dir ~/work/ait # set output directory
 
 The commands are designed to chain. Output from each step feeds the next via `--context`.
 
+When `output-dir` is configured, you can pass bare filenames to `-c` — `ait` will find the file in your output directory automatically. The pipeline below works the same whether you use `-o` to write explicit paths or rely on `output-dir` to manage them.
+
 ```bash
 # Step 1: get up to speed on the topic
 ait research "agent memory architectures for multi-agent LLM systems" -o research.md
@@ -216,5 +218,5 @@ Edit any `SKILL.md` to change the output style, structure, or tone. Changes take
 ## Tips
 
 - Quote multi-word inputs. The first positional argument is the main prompt.
-- Set an output directory. Run `ait config output-dir ~/work/ait` and stop typing `-o` on every command.
+- Set an output directory. Run `ait config output-dir ~/work/ait` and stop typing `-o` on every command. When set, bare filenames passed to `-c` are automatically resolved against it, so the full pipeline works without any absolute paths.
 - Iterate on the HLD. `ait hld` produces a first draft. Read it, edit it, then run `ait review` on the edited version.
