@@ -28,6 +28,14 @@ cd ai-writing-toolkit
 
 `install.sh` makes `ait` executable, adds `bin/` to your PATH, detects your LLM backend, and prompts you to configure your model and default output directory. Open a new terminal when it finishes, or run `source ~/.zshrc`.
 
+### Uninstall
+
+```bash
+./uninstall.sh
+```
+
+Removes the PATH entry from your shell config and deletes `~/.ait`. Does not delete the repository.
+
 ---
 
 ## Configuration

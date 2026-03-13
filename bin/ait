@@ -500,6 +500,16 @@ open('$AIT_CONFIG_FILE', 'w').write(content)
             echo "${config_key}=$2" >> "$AIT_CONFIG_FILE"
         fi
         echo "${key} set to $2"
+        # When backend changes, clear model so the backend-aware default takes effect
+        if [[ "$key" == "backend" ]]; then
+            python3 -c "
+import re
+content = open('$AIT_CONFIG_FILE').read()
+content = re.sub(r'^model=.*\n?', '', content, flags=re.MULTILINE)
+open('$AIT_CONFIG_FILE', 'w').write(content)
+"
+            echo "model cleared (will use default for $2)"
+        fi
     fi
 }
 
