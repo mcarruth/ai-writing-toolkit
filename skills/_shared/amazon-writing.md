@@ -49,7 +49,7 @@ Every markdown document must begin with YAML front matter between `---` delimite
 
 ```
 ---
-topic: <document title>
+topic: "Document Title Here"
 date: <YYYY-MM-DD>
 type: <research|design|hld|review|one-pager|exec-comms>
 status: Draft
@@ -58,6 +58,8 @@ tags: [relevant-tag, another-tag]
 context: ["[[filename-without-extension]]", "[[another-filename]]"]
 ---
 ```
+
+**YAML quoting rule:** Always wrap the `topic` value in double quotes. YAML treats a bare colon followed by a space as a key-value separator — a title like `How to Win Friends: A Brief` will break the parser unless quoted.
 
 For the `context` field: if context files were injected (you will see them as `--- Context: filename ---` blocks in the prompt), list each source file as an Obsidian wiki link using only the filename without its extension — for example, `"[[ads-agent-orchestrator-context]]"`. Omit the `context` field entirely if no context files were provided.
 
