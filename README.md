@@ -84,13 +84,16 @@ ait config output-dir --clear         # remove
 
 Override per-invocation with `AIT_OUTPUT_DIR` or the `-o` flag.
 
-When a default output directory is set and `-o` is not specified, files are saved as:
+When a default output directory is set, output files are saved under `<output-dir>/<command>/`. The filename is determined as follows:
 
-```
-<output-dir>/<command>/<slugified-topic>.md
-```
+| `-o` value | Saved as |
+|---|---|
+| *(omitted)* | `<output-dir>/<command>/<slugified-topic>.md` |
+| Bare filename (`my-doc` or `my-doc.md`) | `<output-dir>/<command>/my-doc.md` |
+| Trailing slash (`notes/`) | `notes/<slugified-topic>.md` |
+| Any path with a `/` | Used as-is |
 
-For example, `ait research "vector DB tradeoffs"` saves to `~/work/ait/research/vector-db-tradeoffs.md`.
+For `exec-comms`, when no `-o` is given and the input is raw text, the LLM generates a meaningful filename from the content rather than slugifying your input.
 
 ---
 
@@ -157,7 +160,7 @@ ait one-pager "feature tracks after launch" -c roadmap.md -o one-pager.md
 
 ### `ait exec-comms` — Executive communication
 
-Transforms technical communication into FIR format (Facts, Impact, Recommendation) for senior leaders. Restructures bottom-up technical narratives into the top-down format leaders expect.
+Transforms technical communication into FIR format (Facts, Impact, Recommendation) for VP/SVP audiences. Output is a single concise paragraph — ready to paste into an email, MBR entry, or meeting notes. When no output filename is given, the LLM generates a meaningful name from the content.
 
 ```bash
 ait exec-comms "We had an outage today for 55 minutes due to memory issues"
@@ -223,6 +226,6 @@ Edit any `SKILL.md` to change the output style, structure, or tone. Changes take
 
 ## Tips
 
-- Quote multi-word inputs. The first positional argument is the main prompt.
+- Quoting multi-word inputs is optional. `ait hld my raw notes` works the same as `ait hld "my raw notes"`. Paths with spaces also work unquoted.
 - Set an output directory. Run `ait config output-dir ~/work/ait` and stop typing `-o` on every command. When set, bare filenames passed to `-c` are automatically resolved against it, so the full pipeline works without any absolute paths.
 - Iterate on the HLD. `ait hld` produces a first draft. Read it, edit it, then run `ait review` on the edited version.
