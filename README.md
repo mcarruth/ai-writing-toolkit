@@ -140,13 +140,13 @@ ait hld "build a feedback pipeline that captures conversation logs and writes to
 ait hld "going with option 2 from design doc" -c research.md -c design.md -o hld.md
 ```
 
-### `ait review` — Design review prep
+### `ait hld-review` — Design review prep
 
 Takes a draft HLD file and returns: critical issues that would block a review, the five hardest questions a principal engineer is likely to ask, the three weakest sections with improvement suggestions, and a checklist of what's missing.
 
 ```bash
-ait review hld.md
-ait review hld.md -c research.md -c design.md -o review-feedback.md
+ait hld-review hld.md
+ait hld-review hld.md -c research.md -c design.md -o hld-feedback.md
 ```
 
 ### `ait one-pager` — One-page summary
@@ -234,7 +234,7 @@ ait hld "going with option 2 (scoped views over a centralized store)" \
     -c research.md -c design.md -o hld.md
 
 # Step 4: stress-test before the review meeting
-ait review hld.md -c research.md -c design.md -o review-feedback.md
+ait hld-review hld.md -c research.md -c design.md -o hld-feedback.md
 ```
 
 The output of `review` tells you what to fix and what questions to prepare before you walk into the room.
@@ -251,7 +251,7 @@ skills/
   research-deep/SKILL.md      # research brief instructions
   design-options/SKILL.md     # design options instructions
   hld-draft/SKILL.md          # HLD instructions
-  review-prep/SKILL.md        # HLD review instructions
+  review-prep/SKILL.md        # hld-review instructions
   one-pager/SKILL.md          # one-pager instructions
   exec-comms/SKILL.md         # exec comms instructions
   prfaq-review/SKILL.md       # PRFAQ review instructions
@@ -268,4 +268,4 @@ Edit any `SKILL.md` to change the output style, structure, or tone. Changes take
 
 - Quoting multi-word inputs is optional. `ait hld my raw notes` works the same as `ait hld "my raw notes"`. Paths with spaces also work unquoted.
 - Set an output directory. Run `ait config output-dir ~/work/ait` and stop typing `-o` on every command. When set, bare filenames passed to `-c` are automatically resolved against it, so the full pipeline works without any absolute paths.
-- Iterate on the HLD. `ait hld` produces a first draft. Read it, edit it, then run `ait review` on the edited version.
+- Iterate on the HLD. `ait hld` produces a first draft. Read it, edit it, then run `ait hld-review` on the edited version.

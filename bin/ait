@@ -360,22 +360,22 @@ IMPORTANT: This is an async task. Output the full HLD document directly. Do not 
     run_llm "$prompt" "$OUTPUT_FILE"
 }
 
-# --- Subcommand: review ---
+# --- Subcommand: hld-review ---
 
-cmd_review() {
-    local usage="Usage: ait review <hld-file> [--context <file>]... [--output <file>]
+cmd_hld_review() {
+    local usage="Usage: ait hld-review <hld-file> [--context <file>]... [--output <file>]
 
   <hld-file>        Path to the HLD markdown file to review
   -c, --context     Inject a context file (repeatable)
   -o, --output      Write output to file (default: stdout)
 
 Examples:
-  ait review hld.md
-  ait review hld.md -c research.md -c design.md -o review-feedback.md"
+  ait hld-review hld.md
+  ait hld-review hld.md -c research.md -c design.md -o hld-feedback.md"
 
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-    resolve_output "review" "$(basename "$POSITIONAL" .md)"
+    resolve_output "hld-review" "$(basename "$POSITIONAL" .md)"
     if [[ ! -f "$POSITIONAL" ]]; then
         echo "Error: file not found: $POSITIONAL" >&2
         exit 1
@@ -787,7 +787,7 @@ Commands:
   research        Research brief on any topic
   design          Three differentiated architectural options
   hld             High-level design document from raw notes
-  review          Stress-test a draft HLD
+  hld-review      Stress-test a draft HLD
   one-pager       One-page summary for stakeholders
   exec-comms      Transform technical comms into FIR format
 
@@ -826,7 +826,7 @@ case "$COMMAND" in
     research)        require_backend; cmd_research "$@" ;;
     design)          require_backend; cmd_design "$@" ;;
     hld)             require_backend; cmd_hld "$@" ;;
-    review)          require_backend; cmd_review "$@" ;;
+    hld-review)      require_backend; cmd_hld_review "$@" ;;
     one-pager)       require_backend; cmd_one_pager "$@" ;;
     exec-comms)      require_backend; cmd_exec_comms "$@" ;;
     prfaq-review)    require_backend; cmd_prfaq_review "$@" ;;
