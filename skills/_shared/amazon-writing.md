@@ -55,7 +55,10 @@ type: <research|design|hld|review|one-pager|exec-comms>
 status: Draft
 version: "1.0"
 tags: [relevant-tag, another-tag]
+context: ["[[filename-without-extension]]", "[[another-filename]]"]
 ---
 ```
+
+For the `context` field: if context files were injected (you will see them as `--- Context: filename ---` blocks in the prompt), list each source file as an Obsidian wiki link using only the filename without its extension — for example, `"[[ads-agent-orchestrator-context]]"`. Omit the `context` field entirely if no context files were provided.
 
 The first line of the document body follows immediately after the closing `---`.
