@@ -93,6 +93,22 @@ load_skill() {
     SKILL_CONTENT=$(cat "$skill")
 }
 
+resolve_context_files() {
+    local -a resolved=()
+    for ctx in "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}"; do
+        if [[ ! -f "$ctx" ]] && [[ -n "${AIT_OUTPUT_DIR:-}" ]] && [[ "$ctx" == "$(basename "$ctx")" ]]; then
+            local match_count match_path
+            match_count=$(find "$AIT_OUTPUT_DIR" -name "$ctx" -type f | wc -l | tr -d ' ')
+            if [[ "$match_count" -eq 1 ]]; then
+                match_path=$(find "$AIT_OUTPUT_DIR" -name "$ctx" -type f)
+                ctx="$match_path"
+            fi
+        fi
+        resolved+=("$ctx")
+    done
+    CONTEXT_FILES=("${resolved[@]+"${resolved[@]}"}")
+}
+
 append_context() {
     local prompt="$1"
     shift
@@ -241,14 +257,63 @@ parse_context_and_output() {
     done
 
     # Join all positional words — reconstructs unquoted paths with spaces, and
-    # allows multi-word text args (e.g. ait hld my raw notes) without quoting
+    # allows multi-word text args (e.g. ait write hld my raw notes) without quoting
     POSITIONAL="${_positionals[*]+"${_positionals[*]}"}"
+}
+
+inject_context_frontmatter() {
+    local output_file="$1"
+    shift
+    [[ -z "$output_file" ]] && return 0
+    [[ ! -f "$output_file" ]] && return 0
+    [[ $# -eq 0 ]] && return 0
+
+    # Resolve to absolute paths, filter to existing files
+    local resolved_paths=""
+    for f in "$@"; do
+        [[ -f "$f" ]] || continue
+        local abs
+        abs="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+        resolved_paths="${resolved_paths}${abs}"$'\n'
+    done
+    [[ -z "$resolved_paths" ]] && return 0
+
+    AIT_INJECT_FILE="$output_file" AIT_INJECT_PATHS="$resolved_paths" python3 << 'PYEOF'
+import os, re, sys
+
+path = os.environ["AIT_INJECT_FILE"]
+raw_paths = os.environ.get("AIT_INJECT_PATHS", "").strip()
+
+if not raw_paths:
+    sys.exit(0)
+
+files = [p for p in raw_paths.split("\n") if p]
+ctx_lines = "context:\n" + "\n".join(f'  - "{f}"' for f in files)
+
+content = open(path).read()
+
+if content.startswith("---\n") or content.startswith("---\r\n"):
+    rest = content[4:]
+    m = re.search(r"^---\s*$", rest, re.MULTILINE)
+    if m:
+        fm_content = rest[:m.start()].rstrip("\n")
+        after_fm = rest[m.end():].lstrip("\n")
+        # Remove any existing context field
+        # Remove any existing context field (handles inline and multi-line formats)
+        fm_content = re.sub(r"^context:[^\n]*(\n  - [^\n]*)*\n?", "", fm_content, flags=re.MULTILINE)
+        new_content = "---\n" + fm_content.rstrip("\n") + "\n" + ctx_lines + "\n---\n\n" + after_fm
+        open(path, "w").write(new_content)
+        sys.exit(0)
+
+# No valid front matter — prepend one
+open(path, "w").write("---\n" + ctx_lines + "\n---\n\n" + content)
+PYEOF
 }
 
 # --- Subcommand: research ---
 
 cmd_research() {
-    local usage="Usage: ait research <topic> [--context <file>]... [--output <file>]
+    local usage="Usage: ait research <topic> [-c <file>]... [-o <file>]
 
   <topic>           Topic to research (quote multi-word topics)
   -c, --context     Inject a context file (repeatable)
@@ -261,9 +326,10 @@ Examples:
 
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_context_files
     resolve_output "research" "$POSITIONAL"
 
-    load_skill "research-deep"
+    load_skill "research"
     local prompt="${SHARED_CONTENT}
 
 ---
@@ -279,27 +345,29 @@ Topic: ${POSITIONAL}"
 
 ---
 
-IMPORTANT: This is an async task. Output the research brief directly. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
+IMPORTANT: This is an async task. Output the research brief as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
 
     run_llm "$prompt" "$OUTPUT_FILE"
+    inject_context_frontmatter "$OUTPUT_FILE" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}"
 }
 
-# --- Subcommand: design ---
+# --- Subcommand: design-options ---
 
-cmd_design() {
-    local usage="Usage: ait design <problem-statement> [--context <file>]... [--output <file>]
+cmd_design_options() {
+    local usage="Usage: ait design-options <problem-statement> [-c <file>]... [-o <file>]
 
   <problem-statement>  What you need to design (quote it)
   -c, --context        Inject a context file (repeatable)
   -o, --output         Write output to file (default: stdout)
 
 Examples:
-  ait design \"how to store conversation history for LLM agents at 10k RPS\"
-  ait design \"sub-agent memory scoping\" -c research.md -o design.md"
+  ait design-options \"how to store conversation history for LLM agents at 10k RPS\"
+  ait design-options \"sub-agent memory scoping\" -c research.md -o design-options.md"
 
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-    resolve_output "design" "$POSITIONAL"
+    resolve_context_files
+    resolve_output "design-options" "$POSITIONAL"
 
     load_skill "design-options"
     local prompt="${SHARED_CONTENT}
@@ -317,29 +385,34 @@ Problem statement: ${POSITIONAL}"
 
 ---
 
-IMPORTANT: This is an async task. Output the design options document directly. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
+IMPORTANT: This is an async task. Output the design options document as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
 
     run_llm "$prompt" "$OUTPUT_FILE"
+    inject_context_frontmatter "$OUTPUT_FILE" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}"
 }
 
-# --- Subcommand: hld ---
+# --- Subcommand: write ---
 
-cmd_hld() {
-    local usage="Usage: ait hld <raw-thoughts> [--context <file>]... [--output <file>]
+_write_doc() {
+    local type="$1" label="$2"
+    shift 2
 
-  <raw-thoughts>    Your notes, description, or design intent (quote it)
+    local usage="Usage: ait write ${type} <${label}> [-c <file>]... [-o <file>]
+
+  <${label}>    Your notes or description (quote multi-word input)
   -c, --context     Inject a context file (repeatable)
   -o, --output      Write output to file (default: stdout)
 
 Examples:
-  ait hld \"build a feedback pipeline that captures conversation logs and writes to S3\"
-  ait hld \"going with centralized memory store\" -c research.md -c design.md -o hld.md"
+  ait write ${type} \"your notes here\"
+  ait write ${type} \"your notes\" -c context.md -o output.md"
 
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-    resolve_output "hld" "$POSITIONAL"
+    resolve_context_files
+    resolve_output "$type" "$POSITIONAL"
 
-    load_skill "hld-draft"
+    load_skill "${type}/write"
     local prompt="${SHARED_CONTENT}
 
 ---
@@ -348,40 +421,77 @@ ${SKILL_CONTENT}
 
 ---
 
-Engineer's notes and intent: ${POSITIONAL}"
+${label}: ${POSITIONAL}"
 
     prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
     prompt="${prompt}
 
 ---
 
-IMPORTANT: This is an async task. Output the full HLD document directly. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly in the relevant section as a decision to confirm."
+IMPORTANT: This is an async task. Output the document as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly."
 
     run_llm "$prompt" "$OUTPUT_FILE"
+    inject_context_frontmatter "$OUTPUT_FILE" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}"
 }
 
-# --- Subcommand: hld-review ---
+cmd_write() {
+    local type="${1:-}"
+    if [[ -z "$type" ]]; then
+        echo "Usage: ait write <type> [options]" >&2
+        echo "" >&2
+        echo "Types:" >&2
+        echo "  hld          High-level design document" >&2
+        echo "  prfaq        Press release and FAQ (Working Backwards)" >&2
+        echo "  six-pager    Six-page narrative for leadership review" >&2
+        echo "  one-pager    One-page summary for stakeholders" >&2
+        exit 1
+    fi
+    shift
 
-cmd_hld_review() {
-    local usage="Usage: ait hld-review <hld-file> [--context <file>]... [--output <file>]
+    case "$type" in
+        hld)        _write_doc "hld" "Engineer's notes and intent" "$@" ;;
+        prfaq)      _write_doc "prfaq" "Product idea and customer problem" "$@" ;;
+        six-pager)  _write_doc "six-pager" "Raw notes and context" "$@" ;;
+        one-pager)  _write_doc "one-pager" "Topic or prompt" "$@" ;;
+        --help|-h)
+            cmd_write
+            ;;
+        *)
+            echo "Unknown type: $type" >&2
+            echo "Types: hld, prfaq, six-pager, one-pager" >&2
+            exit 1
+            ;;
+    esac
+}
 
-  <hld-file>        Path to the HLD markdown file to review
+# --- Subcommand: review ---
+
+_review_doc() {
+    local type="$1"
+    shift
+
+    local usage="Usage: ait review ${type} <file> [-c <file>]... [-o <file>]
+
+  <file>            Path to the ${type} markdown file to review
   -c, --context     Inject a context file (repeatable)
   -o, --output      Write output to file (default: stdout)
 
 Examples:
-  ait hld-review hld.md
-  ait hld-review hld.md -c research.md -c design.md -o hld-feedback.md"
+  ait review ${type} ${type}.md
+  ait review ${type} ${type}.md -c context.md"
 
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-    resolve_output "hld-review" "$(basename "$POSITIONAL" .md)"
     if [[ ! -f "$POSITIONAL" ]]; then
         echo "Error: file not found: $POSITIONAL" >&2
         exit 1
     fi
 
-    load_skill "review-prep"
+    local basename
+    basename=$(basename "$POSITIONAL" .md)
+    resolve_output "$type" "${basename}-review"
+
+    load_skill "${type}/review"
     local prompt="${SHARED_CONTENT}
 
 ---
@@ -390,7 +500,7 @@ ${SKILL_CONTENT}
 
 ---
 
-HLD document to review:
+Document to review:
 
 $(cat "$POSITIONAL")"
 
@@ -404,301 +514,32 @@ IMPORTANT: This is an async task. Output the review directly. Do not ask for cla
     run_llm "$prompt" "$OUTPUT_FILE"
 }
 
-# --- Subcommand: one-pager ---
-
-cmd_one_pager() {
-    local usage="Usage: ait one-pager <prompt> [--context <file>]... [--output <file>]
-
-  <prompt>          What the one-pager should cover (quote multi-word prompts)
-  -c, --context     Inject a context file (repeatable)
-  -o, --output      Write output to file (default: stdout)
-
-Examples:
-  ait one-pager \"summarize our Q2 roadmap for partner teams\"
-  ait one-pager \"feature tracks after launch\" -c roadmap.md -o one-pager.md"
-
-    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
-    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-    resolve_output "one-pager" "$POSITIONAL"
-
-    load_skill "one-pager"
-    local prompt="${SHARED_CONTENT}
-
----
-
-${SKILL_CONTENT}
-
----
-
-${POSITIONAL}"
-
-    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-    prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Output the one-pager directly. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
-
-    run_llm "$prompt" "$OUTPUT_FILE"
-}
-
-# --- Subcommand: exec-comms ---
-
-cmd_exec_comms() {
-    local usage="Usage: ait exec-comms <message-or-file> [--context <file>]... [--output <file>]
-
-  <message-or-file>  Your draft message or path to a file (quote multi-word messages)
-  -c, --context      Inject a context file (repeatable)
-  -o, --output       Write output to file (default: stdout)
-
-Examples:
-  ait exec-comms \"We had an outage today for 55 minutes due to memory issues\"
-  ait exec-comms draft-email.txt -c roadmap.md -o exec-update.md"
-
-    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
-    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-
-    # Detect whether we need the LLM to generate a filename:
-    # only when input is raw text (not a file) and no explicit -o was given
-    local need_autoname=false
-    if [[ ! -f "$POSITIONAL" ]] && [[ -z "$OUTPUT_FILE" ]] && [[ -n "${AIT_OUTPUT_DIR:-}" ]]; then
-        need_autoname=true
-    fi
-
-    local auto_name="$POSITIONAL"
-    [[ -f "$POSITIONAL" ]] && auto_name="$(basename "$POSITIONAL" .md)"
-    resolve_output "exec-comms" "$auto_name"
-
-    local message
-    if [[ -f "$POSITIONAL" ]]; then
-        message=$(cat "$POSITIONAL")
-    else
-        message="$POSITIONAL"
-    fi
-
-    load_skill "exec-comms"
-    local prompt="${SHARED_CONTENT}
-
----
-
-${SKILL_CONTENT}
-
----
-
-Engineer's draft communication:
-
-${message}"
-
-    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-
-    if $need_autoname; then
-        prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Begin your response with a filename on its own line in this exact format:
-FILENAME: kebab-case-name
-The filename should be 3-5 kebab-case words that describe what this communication is about (e.g. outage-memory-failover-q2, latency-regression-resolved, security-signoff-delayed). Then output a blank line, then your FIR response. Do not ask for clarification or confirmation."
-
-        local raw suggested content
-        raw=$(capture_llm "$prompt")
-        suggested=$(printf '%s\n' "$raw" | head -1 | sed 's/^FILENAME:[[:space:]]*//')
-        content=$(printf '%s\n' "$raw" | sed '1,2d')
-
-        # Fallback if LLM didn't follow the format
-        if [[ ! "$suggested" =~ ^[a-z0-9-]+$ ]]; then
-            suggested=$(slugify "${POSITIONAL:0:50}")
-        fi
-
-        OUTPUT_FILE="${AIT_OUTPUT_DIR}/exec-comms/${suggested}.md"
-        mkdir -p "$(dirname "$OUTPUT_FILE")"
-        printf '%s\n' "$content" > "$OUTPUT_FILE"
-        echo "Saved: $OUTPUT_FILE" >&2
-    else
-        prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Output the FIR-formatted communication directly. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
-
-        run_llm "$prompt" "$OUTPUT_FILE"
-    fi
-}
-
-# --- Subcommand: prfaq-review ---
-
-cmd_prfaq_review() {
-    local usage="Usage: ait prfaq-review <prfaq-file> [--context <file>]... [--output <file>]
-
-  <prfaq-file>      Path to the PRFAQ markdown file to review
-  -c, --context     Inject a context file (repeatable)
-  -o, --output      Write output to file (default: stdout)
-
-Examples:
-  ait prfaq-review prfaq.md
-  ait prfaq-review prfaq.md -c strategy.md -o prfaq-feedback.md"
-
-    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
-    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-    resolve_output "prfaq-review" "$(basename "$POSITIONAL" .md)"
-    if [[ ! -f "$POSITIONAL" ]]; then
-        echo "Error: file not found: $POSITIONAL" >&2
+cmd_review() {
+    local type="${1:-}"
+    if [[ -z "$type" ]]; then
+        echo "Usage: ait review <type> <file> [options]" >&2
+        echo "" >&2
+        echo "Types:" >&2
+        echo "  hld      High-level design document" >&2
+        echo "  prfaq    Press release and FAQ" >&2
+        echo "  coe      Correction of Errors" >&2
+        echo "  op1      Operating Plan narrative" >&2
+        echo "  mbr      Monthly Business Review narrative" >&2
         exit 1
     fi
+    shift
 
-    load_skill "prfaq-review"
-    local prompt="${SHARED_CONTENT}
-
----
-
-${SKILL_CONTENT}
-
----
-
-PRFAQ to review:
-
-$(cat "$POSITIONAL")"
-
-    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-    prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Output the review directly. Do not ask for clarification or confirmation."
-
-    run_llm "$prompt" "$OUTPUT_FILE"
-}
-
-# --- Subcommand: coe-review ---
-
-cmd_coe_review() {
-    local usage="Usage: ait coe-review <coe-file> [--context <file>]... [--output <file>]
-
-  <coe-file>        Path to the COE markdown file to review
-  -c, --context     Inject a context file (repeatable)
-  -o, --output      Write output to file (default: stdout)
-
-Examples:
-  ait coe-review coe.md
-  ait coe-review coe.md -o coe-feedback.md"
-
-    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
-    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-    resolve_output "coe-review" "$(basename "$POSITIONAL" .md)"
-    if [[ ! -f "$POSITIONAL" ]]; then
-        echo "Error: file not found: $POSITIONAL" >&2
-        exit 1
-    fi
-
-    load_skill "coe-review"
-    local prompt="${SHARED_CONTENT}
-
----
-
-${SKILL_CONTENT}
-
----
-
-COE to review:
-
-$(cat "$POSITIONAL")"
-
-    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-    prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Output the review directly. Do not ask for clarification or confirmation."
-
-    run_llm "$prompt" "$OUTPUT_FILE"
-}
-
-# --- Subcommand: op1-review ---
-
-cmd_op1_review() {
-    local usage="Usage: ait op1-review <op1-file> [--context <file>]... [--output <file>]
-
-  <op1-file>        Path to the OP1 narrative markdown file to review
-  -c, --context     Inject a context file (repeatable)
-  -o, --output      Write output to file (default: stdout)
-
-Examples:
-  ait op1-review op1.md
-  ait op1-review op1.md -c strategy.md -o op1-feedback.md"
-
-    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
-    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-    resolve_output "op1-review" "$(basename "$POSITIONAL" .md)"
-    if [[ ! -f "$POSITIONAL" ]]; then
-        echo "Error: file not found: $POSITIONAL" >&2
-        exit 1
-    fi
-
-    load_skill "op1-review"
-    local prompt="${SHARED_CONTENT}
-
----
-
-${SKILL_CONTENT}
-
----
-
-OP1 to review:
-
-$(cat "$POSITIONAL")"
-
-    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-    prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Output the review directly. Do not ask for clarification or confirmation."
-
-    run_llm "$prompt" "$OUTPUT_FILE"
-}
-
-# --- Subcommand: mbr-review ---
-
-cmd_mbr_review() {
-    local usage="Usage: ait mbr-review <mbr-file> [--context <file>]... [--output <file>]
-
-  <mbr-file>        Path to the MBR narrative markdown file to review
-  -c, --context     Inject a context file (repeatable)
-  -o, --output      Write output to file (default: stdout)
-
-Examples:
-  ait mbr-review mbr.md
-  ait mbr-review mbr.md -o mbr-feedback.md"
-
-    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
-    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-    resolve_output "mbr-review" "$(basename "$POSITIONAL" .md)"
-    if [[ ! -f "$POSITIONAL" ]]; then
-        echo "Error: file not found: $POSITIONAL" >&2
-        exit 1
-    fi
-
-    load_skill "mbr-review"
-    local prompt="${SHARED_CONTENT}
-
----
-
-${SKILL_CONTENT}
-
----
-
-MBR to review:
-
-$(cat "$POSITIONAL")"
-
-    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-    prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Output the review directly. Do not ask for clarification or confirmation."
-
-    run_llm "$prompt" "$OUTPUT_FILE"
+    case "$type" in
+        hld|prfaq|coe|op1|mbr) _review_doc "$type" "$@" ;;
+        --help|-h)
+            cmd_review
+            ;;
+        *)
+            echo "Unknown type: $type" >&2
+            echo "Types: hld, prfaq, coe, op1, mbr" >&2
+            exit 1
+            ;;
+    esac
 }
 
 # --- Subcommand: config ---
@@ -784,19 +625,23 @@ ait — AI Writing Toolkit
 Usage: ait <command> [options]
 
 Commands:
-  research        Research brief on any topic
-  design          Three differentiated architectural options
-  hld             High-level design document from raw notes
-  hld-review      Stress-test a draft HLD
-  one-pager       One-page summary for stakeholders
-  exec-comms      Transform technical comms into FIR format
+  research          Research brief on any topic
+  design-options    Three differentiated architectural options
 
-  prfaq-review    VP-level review of a PRFAQ
-  coe-review      VP-level review of a COE
-  op1-review      VP-level review of an OP1 narrative
-  mbr-review      VP-level review of an MBR narrative
+  write <type>      Draft a document
+    hld             High-level design document
+    prfaq           Press release and FAQ (Working Backwards)
+    six-pager       Six-page narrative for leadership review
+    one-pager       One-page summary for stakeholders
 
-  config          View or set configuration
+  review <type>     VP-level review of a document
+    hld             High-level design document
+    prfaq           Press release and FAQ
+    coe             Correction of Errors
+    op1             Operating Plan narrative
+    mbr             Monthly Business Review narrative
+
+  config            View or set configuration
 
 Common flags:
   -c, --context <file>   Inject a context file (repeatable)
@@ -808,9 +653,9 @@ Backend: $AIT_BACKEND (model: $AIT_MODEL)
 
 Examples:
   ait research "agent memory architectures" -o research.md
-  ait design "memory scoping" -c research.md -o design.md
-  ait hld "going with option 2" -c research.md -c design.md -o hld.md
-  ait review hld.md -o review-feedback.md
+  ait design-options "memory scoping" -c research.md -o design-options.md
+  ait write hld "going with option 2" -c research.md -c design-options.md
+  ait review hld hld.md -c research.md
 EOF
     exit 1
 }
@@ -824,15 +669,9 @@ shift
 
 case "$COMMAND" in
     research)        require_backend; cmd_research "$@" ;;
-    design)          require_backend; cmd_design "$@" ;;
-    hld)             require_backend; cmd_hld "$@" ;;
-    hld-review)      require_backend; cmd_hld_review "$@" ;;
-    one-pager)       require_backend; cmd_one_pager "$@" ;;
-    exec-comms)      require_backend; cmd_exec_comms "$@" ;;
-    prfaq-review)    require_backend; cmd_prfaq_review "$@" ;;
-    coe-review)      require_backend; cmd_coe_review "$@" ;;
-    op1-review)      require_backend; cmd_op1_review "$@" ;;
-    mbr-review)      require_backend; cmd_mbr_review "$@" ;;
+    design-options)  require_backend; cmd_design_options "$@" ;;
+    write)           require_backend; cmd_write "$@" ;;
+    review)          require_backend; cmd_review "$@" ;;
     config)          cmd_config "$@" ;;
     --help|-h)       main_usage ;;
     *) echo "Unknown command: $COMMAND" >&2; echo "" >&2; main_usage ;;

@@ -1,6 +1,6 @@
 # AI Writing Toolkit
 
-Shell scripts for engineers who need to research unfamiliar topics, think through design options, write high-level technical designs, and stress-test drafts before a design review. Uses any LLM CLI as a first-draft engine.
+Shell scripts for engineers who need to research unfamiliar topics, think through design options, write high-level technical designs, and produce Amazon narrative documents. Uses any LLM CLI as a first-draft engine.
 
 All commands go through a single entrypoint: `ait`.
 
@@ -66,34 +66,32 @@ AIT_BACKEND=claude-code ait research "some topic"
 
 ```bash
 ait config model claude-sonnet-4-6   # set model
-ait config model                             # show current
-ait config model --clear                     # reset to default
+ait config model                     # show current
+ait config model --clear             # reset to default
 ```
 
 Override per-invocation with `AIT_MODEL`.
 
 ### Output directory
 
-By default, `ait` prints to stdout. Set a default output directory and `ait` will auto-save files organized by command type (e.g., `research/`, `design/`, `hld/`).
+By default, `ait` prints to stdout. Set a default output directory and `ait` will auto-save files organized by document type.
 
 ```bash
 ait config output-dir ~/work/ait     # set
-ait config output-dir                 # show current
-ait config output-dir --clear         # remove
+ait config output-dir                # show current
+ait config output-dir --clear        # remove
 ```
 
 Override per-invocation with `AIT_OUTPUT_DIR` or the `-o` flag.
 
-When a default output directory is set, output files are saved under `<output-dir>/<command>/`. The filename is determined as follows:
+When a default output directory is set, output files are saved under `<output-dir>/<type>/`. Reviews are saved alongside the document they review, named `<document>-review.md`.
 
 | `-o` value | Saved as |
 |---|---|
-| *(omitted)* | `<output-dir>/<command>/<slugified-topic>.md` |
-| Bare filename (`my-doc` or `my-doc.md`) | `<output-dir>/<command>/my-doc.md` |
+| *(omitted)* | `<output-dir>/<type>/<slugified-topic>.md` |
+| Bare filename (`my-doc` or `my-doc.md`) | `<output-dir>/<type>/my-doc.md` |
 | Trailing slash (`notes/`) | `notes/<slugified-topic>.md` |
 | Any path with a `/` | Used as-is |
-
-For `exec-comms`, when no `-o` is given and the input is raw text, the LLM generates a meaningful filename from the content rather than slugifying your input.
 
 ---
 
@@ -107,6 +105,10 @@ Every command accepts:
 - `-c, --context <file>` to inject context files (repeatable)
 - `-o, --output <file>` to write output to a file instead of stdout
 - `-h, --help` for command-specific help
+
+When an output directory is configured, bare filenames passed to `-c` are automatically resolved against it — so `ait write hld "my notes" -c research.md` finds `research.md` in your output directory without a full path.
+
+After writing a file, `ait` injects a `context:` field into the YAML front matter listing the resolved paths of all `-c` files used. This makes the pipeline traceable and enables future context auto-loading.
 
 ---
 
@@ -122,86 +124,96 @@ ait research "LLM agent memory architectures" -o research.md
 ait research "vector database tradeoffs" -c requirements.md -o research.md
 ```
 
-### `ait design` — Design options
+### `ait design-options` — Design options
 
 Takes a problem statement and produces three genuinely differentiated architectural options, each with pros, cons, and "best if" conditions. Ends with a recommendation and key decision criteria.
 
 ```bash
-ait design "how to store and retrieve conversation history for LLM agents at 10k RPS"
-ait design "sub-agent memory scoping" -c research.md -o design.md
+ait design-options "how to store and retrieve conversation history for LLM agents at 10k RPS"
+ait design-options "sub-agent memory scoping" -c research.md -o design-options.md
 ```
 
-### `ait hld` — High-level design draft
+---
 
-Takes your raw notes and produces a complete HLD: problem statement, solution summary, architecture diagram, sequence diagram, input/output protocol definitions, error/retry/failover logic, metrics and observability, and definition of done. Uses Mermaid for diagrams.
+### `ait write` — Draft a document
+
+Takes your notes and produces a complete draft of the requested document type.
+
+#### `ait write hld`
+
+High-level design document: problem statement, solution summary, architecture and sequence diagrams (Mermaid), input/output protocol definitions, error and retry logic, metrics and observability, and definition of done.
 
 ```bash
-ait hld "build a feedback pipeline that captures conversation logs and writes to S3"
-ait hld "going with option 2 from design doc" -c research.md -c design.md -o hld.md
+ait write hld "build a feedback pipeline that captures conversation logs and writes to S3"
+ait write hld "going with option 2 from design doc" -c research.md -c design-options.md -o hld.md
 ```
 
-### `ait hld-review` — Design review prep
+#### `ait write prfaq`
 
-Takes a draft HLD file and returns: critical issues that would block a review, the five hardest questions a principal engineer is likely to ask, the three weakest sections with improvement suggestions, and a checklist of what's missing.
+Press release and FAQ (Working Backwards): a press release written as if the product launched today, an external FAQ covering customer objections, and an internal FAQ covering investment, build vs. buy, headcount, timeline, and key assumptions.
 
 ```bash
-ait hld-review hld.md
-ait hld-review hld.md -c research.md -c design.md -o hld-feedback.md
+ait write prfaq "an AI agent that manages advertiser budgets across Amazon Ads"
+ait write prfaq "unified ads reporting" -c context.md -o prfaq.md
 ```
 
-### `ait one-pager` — One-page summary
+#### `ait write six-pager`
 
-Creates a one-page summary for partner teams, leadership, or stakeholders: what you're building, why it matters, who it's for, the high-level approach, timeline, dependencies, and risks.
+Six-page narrative for leadership review: introduction, tenets, problem statement, proposed solution, metrics for success, risks and mitigations, next steps, and appendix list.
 
 ```bash
-ait one-pager "summarize our Q2 roadmap for partner teams"
-ait one-pager "feature tracks after launch" -c roadmap.md -o one-pager.md
+ait write six-pager "consolidate advertiser AI surfaces into a single orchestration layer"
+ait write six-pager "annual plan for ads agent platform" -c context.md -o six-pager.md
 ```
 
-### `ait exec-comms` — Executive communication
+#### `ait write one-pager`
 
-Transforms technical communication into FIR format (Facts, Impact, Recommendation) for VP/SVP audiences. Output is a single concise paragraph — ready to paste into an email, MBR entry, or meeting notes. When no output filename is given, the LLM generates a meaningful name from the content.
+One-page summary for partner teams, leadership, or stakeholders: what you're building, why it matters, who it's for, the high-level approach, timeline, dependencies, and risks.
 
 ```bash
-ait exec-comms "We had an outage today for 55 minutes due to memory issues"
-ait exec-comms draft-email.txt -c roadmap.md -o exec-update.md
+ait write one-pager "summarize our Q2 roadmap for partner teams"
+ait write one-pager "feature tracks after launch" -c roadmap.md -o one-pager.md
 ```
 
-### `ait prfaq-review` — PRFAQ review
+---
 
-Reviews a PRFAQ from the perspective of a VP of Engineering. Evaluates whether the customer problem is real and large enough, whether the solution is genuinely differentiated, and whether the FAQs answer the hard questions or avoid them.
+### `ait review` — VP-level document review
+
+Takes a document and returns: critical issues that would block approval, the hardest questions a VP or principal engineer will ask, the weakest sections with improvement suggestions, and a checklist of what's missing.
+
+#### `ait review hld`
 
 ```bash
-ait prfaq-review prfaq.md
-ait prfaq-review prfaq.md -c strategy.md -o prfaq-feedback.md
+ait review hld hld.md
+ait review hld hld.md -c research.md -c design-options.md
 ```
 
-### `ait coe-review` — COE review
-
-Reviews a Correction of Errors document from the perspective of a VP of Engineering. Evaluates whether the root cause analysis went deep enough, whether action items are structural fixes or surface patches, and whether the document is honest about what went wrong.
+#### `ait review prfaq`
 
 ```bash
-ait coe-review coe.md
-ait coe-review coe.md -o coe-feedback.md
+ait review prfaq prfaq.md
+ait review prfaq prfaq.md -c strategy.md
 ```
 
-### `ait op1-review` — OP1 review
-
-Reviews an Operating Plan narrative from the perspective of a VP of Engineering. Evaluates whether priorities are clear and ranked, whether investment asks are tied to measurable outcomes, and whether risks and tradeoffs are disclosed honestly.
+#### `ait review coe`
 
 ```bash
-ait op1-review op1.md
-ait op1-review op1.md -c strategy.md -o op1-feedback.md
+ait review coe coe.md
 ```
 
-### `ait mbr-review` — MBR review
-
-Reviews a Monthly Business Review narrative from the perspective of a VP of Engineering. Evaluates whether bad news is surfaced directly, whether metric trends are explained with clear next actions, and whether asks to leadership are specific.
+#### `ait review op1`
 
 ```bash
-ait mbr-review mbr.md
-ait mbr-review mbr.md -o mbr-feedback.md
+ait review op1 op1.md -c strategy.md
 ```
+
+#### `ait review mbr`
+
+```bash
+ait review mbr mbr.md
+```
+
+---
 
 ### `ait config` — Configuration
 
@@ -227,17 +239,32 @@ When `output-dir` is configured, you can pass bare filenames to `-c` — `ait` w
 ait research "agent memory architectures for multi-agent LLM systems" -o research.md
 
 # Step 2: explore the design space
-ait design "how to scope memory per sub-agent in our orchestrator" -c research.md -o design.md
+ait design-options "how to scope memory per sub-agent in our orchestrator" -c research.md -o design-options.md
 
 # Step 3: draft the HLD using both prior outputs as context
-ait hld "going with option 2 (scoped views over a centralized store)" \
-    -c research.md -c design.md -o hld.md
+ait write hld "going with option 2 (scoped views over a centralized store)" \
+    -c research.md -c design-options.md -o hld.md
 
 # Step 4: stress-test before the review meeting
-ait hld-review hld.md -c research.md -c design.md -o hld-feedback.md
+ait review hld hld.md -c research.md -c design-options.md
 ```
 
-The output of `review` tells you what to fix and what questions to prepare before you walk into the room.
+Output directories after running the full pipeline (with `output-dir` set):
+
+```
+<output-dir>/
+  research/
+  design-options/
+  hld/
+  prfaq/
+  six-pager/
+  one-pager/
+  coe/
+  op1/
+  mbr/
+```
+
+Reviews are saved in the same directory as the document they review, named `<document>-review.md`.
 
 ---
 
@@ -247,17 +274,25 @@ The skills are plain markdown files in `skills/`. Each command maps to a skill d
 
 ```
 skills/
-  _shared/amazon-writing.md   # writing standards applied to all output
-  research-deep/SKILL.md      # research brief instructions
-  design-options/SKILL.md     # design options instructions
-  hld-draft/SKILL.md          # HLD instructions
-  review-prep/SKILL.md        # hld-review instructions
-  one-pager/SKILL.md          # one-pager instructions
-  exec-comms/SKILL.md         # exec comms instructions
-  prfaq-review/SKILL.md       # PRFAQ review instructions
-  coe-review/SKILL.md         # COE review instructions
-  op1-review/SKILL.md         # OP1 review instructions
-  mbr-review/SKILL.md         # MBR review instructions
+  _shared/amazon-writing.md      # writing standards applied to all output
+  research/SKILL.md              # research brief
+  design-options/SKILL.md        # design options
+  hld/
+    write/SKILL.md               # HLD writer
+    review/SKILL.md              # HLD reviewer
+  prfaq/
+    write/SKILL.md               # PRFAQ writer
+    review/SKILL.md              # PRFAQ reviewer
+  six-pager/
+    write/SKILL.md               # six-pager writer
+  one-pager/
+    write/SKILL.md               # one-pager writer
+  coe/
+    review/SKILL.md              # COE reviewer
+  op1/
+    review/SKILL.md              # OP1 reviewer
+  mbr/
+    review/SKILL.md              # MBR reviewer
 ```
 
 Edit any `SKILL.md` to change the output style, structure, or tone. Changes take effect immediately.
@@ -266,6 +301,6 @@ Edit any `SKILL.md` to change the output style, structure, or tone. Changes take
 
 ## Tips
 
-- Quoting multi-word inputs is optional. `ait hld my raw notes` works the same as `ait hld "my raw notes"`. Paths with spaces also work unquoted.
+- Quoting multi-word inputs is optional. `ait write hld my raw notes` works the same as `ait write hld "my raw notes"`. Paths with spaces also work unquoted.
 - Set an output directory. Run `ait config output-dir ~/work/ait` and stop typing `-o` on every command. When set, bare filenames passed to `-c` are automatically resolved against it, so the full pipeline works without any absolute paths.
-- Iterate on the HLD. `ait hld` produces a first draft. Read it, edit it, then run `ait hld-review` on the edited version.
+- Iterate on the HLD. `ait write hld` produces a first draft. Read it, edit it, then run `ait review hld` on the edited version.
