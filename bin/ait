@@ -262,6 +262,43 @@ parse_context_and_output() {
 }
 
 
+run_llm_named() {
+    local prompt="$1" type="$2" explicit_output="$3"
+
+    # If no explicit output and output-dir is set, ask the LLM to name the file
+    if [[ -z "$explicit_output" ]] && [[ -n "${AIT_OUTPUT_DIR:-}" ]]; then
+        local named_prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Begin your response with a filename on its own line in this exact format:
+FILENAME: kebab-case-name
+The filename should be 3-5 kebab-case words that describe what this document is about (e.g. kinesis-task-dispatcher-hld, agent-memory-architecture, prfaq-ads-unified-reporting). Then a blank line, then the full document as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly."
+
+        local raw suggested content
+        raw=$(capture_llm "$named_prompt")
+        suggested=$(printf '%s\n' "$raw" | head -1 | sed 's/^FILENAME:[[:space:]]*//')
+        content=$(printf '%s\n' "$raw" | sed '1,2d')
+
+        if [[ ! "$suggested" =~ ^[a-z0-9-]+$ ]]; then
+            suggested=$(slugify "${POSITIONAL:0:50}")
+        fi
+
+        local out="${AIT_OUTPUT_DIR}/${type}/${suggested}.md"
+        mkdir -p "$(dirname "$out")"
+        printf '%s\n' "$content" > "$out"
+        echo "Saved: $out" >&2
+    else
+        local full_prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the document as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly."
+
+        run_llm "$full_prompt" "$explicit_output"
+    fi
+}
+
 # --- Subcommand: research ---
 
 cmd_research() {
@@ -279,6 +316,7 @@ Examples:
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
     resolve_context_files
+    local explicit_output="$OUTPUT_FILE"
     resolve_output "research" "$POSITIONAL"
 
     load_skill "research"
@@ -293,13 +331,7 @@ ${SKILL_CONTENT}
 Topic: ${POSITIONAL}"
 
     prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-    prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Output the research brief as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
-
-    run_llm "$prompt" "$OUTPUT_FILE"
+    run_llm_named "$prompt" "research" "$explicit_output"
 }
 
 # --- Subcommand: design-options ---
@@ -318,6 +350,7 @@ Examples:
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
     resolve_context_files
+    local explicit_output="$OUTPUT_FILE"
     resolve_output "design-options" "$POSITIONAL"
 
     load_skill "design-options"
@@ -332,13 +365,7 @@ ${SKILL_CONTENT}
 Problem statement: ${POSITIONAL}"
 
     prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-    prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Output the design options document as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
-
-    run_llm "$prompt" "$OUTPUT_FILE"
+    run_llm_named "$prompt" "design-options" "$explicit_output"
 }
 
 # --- Subcommand: write ---
@@ -360,6 +387,7 @@ Examples:
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
     resolve_context_files
+    local explicit_output="$OUTPUT_FILE"
     resolve_output "$type" "$POSITIONAL"
 
     load_skill "${type}/write"
@@ -374,13 +402,7 @@ ${SKILL_CONTENT}
 ${label}: ${POSITIONAL}"
 
     prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-    prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Output the document as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly."
-
-    run_llm "$prompt" "$OUTPUT_FILE"
+    run_llm_named "$prompt" "$type" "$explicit_output"
 }
 
 cmd_write() {
