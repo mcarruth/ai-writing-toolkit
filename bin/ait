@@ -261,54 +261,6 @@ parse_context_and_output() {
     POSITIONAL="${_positionals[*]+"${_positionals[*]}"}"
 }
 
-inject_context_frontmatter() {
-    local output_file="$1"
-    shift
-    [[ -z "$output_file" ]] && return 0
-    [[ ! -f "$output_file" ]] && return 0
-    [[ $# -eq 0 ]] && return 0
-
-    # Resolve to absolute paths, filter to existing files
-    local resolved_paths=""
-    for f in "$@"; do
-        [[ -f "$f" ]] || continue
-        local abs
-        abs="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
-        resolved_paths="${resolved_paths}${abs}"$'\n'
-    done
-    [[ -z "$resolved_paths" ]] && return 0
-
-    AIT_INJECT_FILE="$output_file" AIT_INJECT_PATHS="$resolved_paths" python3 << 'PYEOF'
-import os, re, sys
-
-path = os.environ["AIT_INJECT_FILE"]
-raw_paths = os.environ.get("AIT_INJECT_PATHS", "").strip()
-
-if not raw_paths:
-    sys.exit(0)
-
-files = [p for p in raw_paths.split("\n") if p]
-ctx_lines = "context:\n" + "\n".join(f'  - "{f}"' for f in files)
-
-content = open(path).read()
-
-if content.startswith("---\n") or content.startswith("---\r\n"):
-    rest = content[4:]
-    m = re.search(r"^---\s*$", rest, re.MULTILINE)
-    if m:
-        fm_content = rest[:m.start()].rstrip("\n")
-        after_fm = rest[m.end():].lstrip("\n")
-        # Remove any existing context field
-        # Remove any existing context field (handles inline and multi-line formats)
-        fm_content = re.sub(r"^context:[^\n]*(\n  - [^\n]*)*\n?", "", fm_content, flags=re.MULTILINE)
-        new_content = "---\n" + fm_content.rstrip("\n") + "\n" + ctx_lines + "\n---\n\n" + after_fm
-        open(path, "w").write(new_content)
-        sys.exit(0)
-
-# No valid front matter — prepend one
-open(path, "w").write("---\n" + ctx_lines + "\n---\n\n" + content)
-PYEOF
-}
 
 # --- Subcommand: research ---
 
@@ -348,7 +300,6 @@ Topic: ${POSITIONAL}"
 IMPORTANT: This is an async task. Output the research brief as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
 
     run_llm "$prompt" "$OUTPUT_FILE"
-    inject_context_frontmatter "$OUTPUT_FILE" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}"
 }
 
 # --- Subcommand: design-options ---
@@ -388,7 +339,6 @@ Problem statement: ${POSITIONAL}"
 IMPORTANT: This is an async task. Output the design options document as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
 
     run_llm "$prompt" "$OUTPUT_FILE"
-    inject_context_frontmatter "$OUTPUT_FILE" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}"
 }
 
 # --- Subcommand: write ---
@@ -431,7 +381,6 @@ ${label}: ${POSITIONAL}"
 IMPORTANT: This is an async task. Output the document as raw markdown. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly."
 
     run_llm "$prompt" "$OUTPUT_FILE"
-    inject_context_frontmatter "$OUTPUT_FILE" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}"
 }
 
 cmd_write() {

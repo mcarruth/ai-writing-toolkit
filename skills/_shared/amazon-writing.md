@@ -51,7 +51,7 @@ Every markdown document must begin with YAML front matter between `---` delimite
 ---
 topic: "Document Title Here"
 date: <YYYY-MM-DD>
-type: <research|design|hld|review|one-pager|exec-comms>
+type: <research|design-options|hld|prfaq|six-pager|one-pager|coe|op1|mbr|review>
 status: Draft
 version: "1.0"
 tags: [relevant-tag, another-tag]
