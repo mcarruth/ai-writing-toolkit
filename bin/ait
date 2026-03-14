@@ -463,9 +463,14 @@ Examples:
         echo "Error: file not found: $POSITIONAL" >&2
         exit 1
     fi
+    if ! file "$POSITIONAL" | grep -q "text"; then
+        echo "Error: $POSITIONAL does not appear to be a text file. Only plain text and markdown files are supported." >&2
+        exit 1
+    fi
 
     local basename
-    basename=$(basename "$POSITIONAL" .md)
+    basename=$(basename "$POSITIONAL")
+    basename="${basename%.*}"
     resolve_output "$type" "${basename}-review"
 
     load_skill "${type}/review"
