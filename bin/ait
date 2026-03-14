@@ -444,6 +444,9 @@ cmd_write() {
         echo "  prfaq        Press release and FAQ (Working Backwards)" >&2
         echo "  six-pager    Six-page narrative for leadership review" >&2
         echo "  one-pager    One-page summary for stakeholders" >&2
+        echo "  coe          Correction of Errors" >&2
+        echo "  op1          Operating Plan narrative" >&2
+        echo "  mbr          Monthly Business Review narrative" >&2
         exit 1
     fi
     shift
@@ -453,12 +456,15 @@ cmd_write() {
         prfaq)      _write_doc "prfaq" "Product idea and customer problem" "$@" ;;
         six-pager)  _write_doc "six-pager" "Raw notes and context" "$@" ;;
         one-pager)  _write_doc "one-pager" "Topic or prompt" "$@" ;;
+        coe)        _write_doc "coe" "Incident notes and timeline" "$@" ;;
+        op1)        _write_doc "op1" "Team goals and investment asks" "$@" ;;
+        mbr)        _write_doc "mbr" "Month's results and asks" "$@" ;;
         --help|-h)
             cmd_write
             ;;
         *)
             echo "Unknown type: $type" >&2
-            echo "Types: hld, prfaq, six-pager, one-pager" >&2
+            echo "Types: hld, prfaq, six-pager, one-pager, coe, op1, mbr" >&2
             exit 1
             ;;
     esac
@@ -520,23 +526,25 @@ cmd_review() {
         echo "Usage: ait review <type> <file> [options]" >&2
         echo "" >&2
         echo "Types:" >&2
-        echo "  hld      High-level design document" >&2
-        echo "  prfaq    Press release and FAQ" >&2
-        echo "  coe      Correction of Errors" >&2
-        echo "  op1      Operating Plan narrative" >&2
-        echo "  mbr      Monthly Business Review narrative" >&2
+        echo "  hld          High-level design document" >&2
+        echo "  prfaq        Press release and FAQ" >&2
+        echo "  six-pager    Six-page narrative for leadership review" >&2
+        echo "  one-pager    One-page summary for stakeholders" >&2
+        echo "  coe          Correction of Errors" >&2
+        echo "  op1          Operating Plan narrative" >&2
+        echo "  mbr          Monthly Business Review narrative" >&2
         exit 1
     fi
     shift
 
     case "$type" in
-        hld|prfaq|coe|op1|mbr) _review_doc "$type" "$@" ;;
+        hld|prfaq|six-pager|one-pager|coe|op1|mbr) _review_doc "$type" "$@" ;;
         --help|-h)
             cmd_review
             ;;
         *)
             echo "Unknown type: $type" >&2
-            echo "Types: hld, prfaq, coe, op1, mbr" >&2
+            echo "Types: hld, prfaq, six-pager, one-pager, coe, op1, mbr" >&2
             exit 1
             ;;
     esac
@@ -633,10 +641,15 @@ Commands:
     prfaq           Press release and FAQ (Working Backwards)
     six-pager       Six-page narrative for leadership review
     one-pager       One-page summary for stakeholders
+    coe             Correction of Errors
+    op1             Operating Plan narrative
+    mbr             Monthly Business Review narrative
 
   review <type>     VP-level review of a document
     hld             High-level design document
     prfaq           Press release and FAQ
+    six-pager       Six-page narrative for leadership review
+    one-pager       One-page summary for stakeholders
     coe             Correction of Errors
     op1             Operating Plan narrative
     mbr             Monthly Business Review narrative

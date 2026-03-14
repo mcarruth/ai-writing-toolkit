@@ -175,6 +175,33 @@ ait write one-pager "summarize our Q2 roadmap for partner teams"
 ait write one-pager "feature tracks after launch" -c roadmap.md -o one-pager.md
 ```
 
+#### `ait write coe`
+
+Correction of Errors document: customer impact, timeline, root cause analysis (five-whys depth), contributing factors, detection gap, action items with owners and dates, and recurrence prevention.
+
+```bash
+ait write coe "service outage 55 minutes, root cause memory leak in cache layer" -c incident-notes.md
+ait write coe "latency spike caused by misconfigured retry policy" -c timeline.md -o coe.md
+```
+
+#### `ait write op1`
+
+Operating Plan narrative: team mission, current state, ranked goals, investment asks tied to measurable outcomes, dependencies, and tradeoffs.
+
+```bash
+ait write op1 "ads agent platform: three SDEs, launch orchestrator to 9 product teams by unBoxed" -c context.md
+ait write op1 "annual plan" -c goals.md -c headcount.md -o op1.md
+```
+
+#### `ait write mbr`
+
+Monthly Business Review narrative: headlines, metrics with explanations, wins, misses with root causes, forward risks, and specific asks to leadership.
+
+```bash
+ait write mbr "latency hit target, partner onboarding slipped by 2 weeks due to security review" -c metrics.md
+ait write mbr "march results" -c data.md -o mbr.md
+```
+
 ---
 
 ### `ait review` — VP-level document review
@@ -211,6 +238,19 @@ ait review op1 op1.md -c strategy.md
 
 ```bash
 ait review mbr mbr.md
+```
+
+#### `ait review six-pager`
+
+```bash
+ait review six-pager six-pager.md
+ait review six-pager six-pager.md -c context.md
+```
+
+#### `ait review one-pager`
+
+```bash
+ait review one-pager one-pager.md
 ```
 
 ---
@@ -285,13 +325,18 @@ skills/
     review/SKILL.md              # PRFAQ reviewer
   six-pager/
     write/SKILL.md               # six-pager writer
+    review/SKILL.md              # six-pager reviewer
   one-pager/
     write/SKILL.md               # one-pager writer
+    review/SKILL.md              # one-pager reviewer
   coe/
+    write/SKILL.md               # COE writer
     review/SKILL.md              # COE reviewer
   op1/
+    write/SKILL.md               # OP1 writer
     review/SKILL.md              # OP1 reviewer
   mbr/
+    write/SKILL.md               # MBR writer
     review/SKILL.md              # MBR reviewer
 ```
 
