@@ -17,7 +17,12 @@ AIT_CONFIG_FILE="$HOME/.ait/config"
 read_config_val() {
     local key="$1"
     if [[ -f "$AIT_CONFIG_FILE" ]]; then
-        grep "^${key}=" "$AIT_CONFIG_FILE" 2>/dev/null | cut -d= -f2- || true
+        local val
+        val=$(grep "^${key}=" "$AIT_CONFIG_FILE" 2>/dev/null | cut -d= -f2- || true)
+        # Strip surrounding single or double quotes (e.g. output_dir="/path with spaces")
+        val="${val#\"}" ; val="${val%\"}"
+        val="${val#\'}" ; val="${val%\'}"
+        printf '%s' "$val"
     fi
 }
 
@@ -117,6 +122,15 @@ $(cat "$ctx")
     printf '%s' "$prompt"
 }
 
+capture_llm() {
+    local prompt="$1"
+    local tmpfile
+    tmpfile=$(mktemp /tmp/ait-XXXXXX.txt)
+    printf '%s\n' "$prompt" > "$tmpfile"
+    run_backend "$tmpfile"
+    rm -f "$tmpfile"
+}
+
 run_llm() {
     local prompt="$1"
     local output_file="$2"
@@ -176,9 +190,16 @@ auto_output() {
 resolve_output() {
     local cmd="$1" topic="$2"
     if [[ "$OUTPUT_FILE" == */ ]]; then
+        # Trailing slash: treat as directory, append slugified topic
         OUTPUT_FILE="${OUTPUT_FILE}$(slugify "$topic").md"
     elif [[ -z "$OUTPUT_FILE" ]]; then
+        # No -o flag: auto-generate path under output-dir
         OUTPUT_FILE=$(auto_output "$cmd" "$topic")
+    elif [[ -n "${AIT_OUTPUT_DIR:-}" ]] && [[ "$OUTPUT_FILE" == "$(basename "$OUTPUT_FILE")" ]]; then
+        # Bare filename (no directory component): prepend output-dir/cmd/
+        local fname="$OUTPUT_FILE"
+        [[ "$fname" != *.* ]] && fname="${fname}.md"
+        OUTPUT_FILE="${AIT_OUTPUT_DIR}/${cmd}/${fname}"
     fi
 }
 
@@ -186,24 +207,42 @@ parse_context_and_output() {
     CONTEXT_FILES=()
     OUTPUT_FILE=""
     POSITIONAL=""
+    local -a _positionals=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --context|-c) CONTEXT_FILES+=("$2"); shift 2 ;;
-            --output|-o) OUTPUT_FILE="$2"; shift 2 ;;
+            --context|-c)
+                local cpath="$2"
+                shift 2
+                # Reconstruct path with spaces: consume non-flag args until file found
+                while [[ $# -gt 0 ]] && [[ "$1" != -* ]] && [[ ! -f "$cpath" ]]; do
+                    cpath="$cpath $1"
+                    shift
+                done
+                CONTEXT_FILES+=("$cpath")
+                ;;
+            --output|-o)
+                local opath="$2"
+                shift 2
+                # Reconstruct path with spaces: consume non-flag args until a file extension is found
+                while [[ $# -gt 0 ]] && [[ "$1" != -* ]] && [[ ! "$opath" =~ \.[a-zA-Z0-9]{1,5}$ ]]; do
+                    opath="$opath $1"
+                    shift
+                done
+                OUTPUT_FILE="$opath"
+                ;;
             --help|-h) return 1 ;;
             -*) echo "Unknown flag: $1" >&2; return 1 ;;
             *)
-                if [[ -z "$POSITIONAL" ]]; then
-                    POSITIONAL="$1"
-                else
-                    echo "Unexpected argument: $1" >&2
-                    return 1
-                fi
+                _positionals+=("$1")
                 shift
                 ;;
         esac
     done
+
+    # Join all positional words — reconstructs unquoted paths with spaces, and
+    # allows multi-word text args (e.g. ait hld my raw notes) without quoting
+    POSITIONAL="${_positionals[*]+"${_positionals[*]}"}"
 }
 
 # --- Subcommand: research ---
@@ -419,6 +458,13 @@ Examples:
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
 
+    # Detect whether we need the LLM to generate a filename:
+    # only when input is raw text (not a file) and no explicit -o was given
+    local need_autoname=false
+    if [[ ! -f "$POSITIONAL" ]] && [[ -z "$OUTPUT_FILE" ]] && [[ -n "${AIT_OUTPUT_DIR:-}" ]]; then
+        need_autoname=true
+    fi
+
     local auto_name="$POSITIONAL"
     [[ -f "$POSITIONAL" ]] && auto_name="$(basename "$POSITIONAL" .md)"
     resolve_output "exec-comms" "$auto_name"
@@ -444,13 +490,39 @@ Engineer's draft communication:
 ${message}"
 
     prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-    prompt="${prompt}
+
+    if $need_autoname; then
+        prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Begin your response with a filename on its own line in this exact format:
+FILENAME: kebab-case-name
+The filename should be 3-5 kebab-case words that describe what this communication is about (e.g. outage-memory-failover-q2, latency-regression-resolved, security-signoff-delayed). Then output a blank line, then your FIR response. Do not ask for clarification or confirmation."
+
+        local raw suggested content
+        raw=$(capture_llm "$prompt")
+        suggested=$(printf '%s\n' "$raw" | head -1 | sed 's/^FILENAME:[[:space:]]*//')
+        content=$(printf '%s\n' "$raw" | sed '1,2d')
+
+        # Fallback if LLM didn't follow the format
+        if [[ ! "$suggested" =~ ^[a-z0-9-]+$ ]]; then
+            suggested=$(slugify "${POSITIONAL:0:50}")
+        fi
+
+        OUTPUT_FILE="${AIT_OUTPUT_DIR}/exec-comms/${suggested}.md"
+        mkdir -p "$(dirname "$OUTPUT_FILE")"
+        printf '%s\n' "$content" > "$OUTPUT_FILE"
+        echo "Saved: $OUTPUT_FILE" >&2
+    else
+        prompt="${prompt}
 
 ---
 
 IMPORTANT: This is an async task. Output the FIR-formatted communication directly. Do not ask for clarification or confirmation. Make reasonable assumptions where needed."
 
-    run_llm "$prompt" "$OUTPUT_FILE"
+        run_llm "$prompt" "$OUTPUT_FILE"
+    fi
 }
 
 # --- Subcommand: config ---
