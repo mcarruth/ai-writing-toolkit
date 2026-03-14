@@ -525,6 +525,182 @@ IMPORTANT: This is an async task. Output the FIR-formatted communication directl
     fi
 }
 
+# --- Subcommand: prfaq-review ---
+
+cmd_prfaq_review() {
+    local usage="Usage: ait prfaq-review <prfaq-file> [--context <file>]... [--output <file>]
+
+  <prfaq-file>      Path to the PRFAQ markdown file to review
+  -c, --context     Inject a context file (repeatable)
+  -o, --output      Write output to file (default: stdout)
+
+Examples:
+  ait prfaq-review prfaq.md
+  ait prfaq-review prfaq.md -c strategy.md -o prfaq-feedback.md"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_output "prfaq-review" "$(basename "$POSITIONAL" .md)"
+    if [[ ! -f "$POSITIONAL" ]]; then
+        echo "Error: file not found: $POSITIONAL" >&2
+        exit 1
+    fi
+
+    load_skill "prfaq-review"
+    local prompt="${SHARED_CONTENT}
+
+---
+
+${SKILL_CONTENT}
+
+---
+
+PRFAQ to review:
+
+$(cat "$POSITIONAL")"
+
+    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
+    prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the review directly. Do not ask for clarification or confirmation."
+
+    run_llm "$prompt" "$OUTPUT_FILE"
+}
+
+# --- Subcommand: coe-review ---
+
+cmd_coe_review() {
+    local usage="Usage: ait coe-review <coe-file> [--context <file>]... [--output <file>]
+
+  <coe-file>        Path to the COE markdown file to review
+  -c, --context     Inject a context file (repeatable)
+  -o, --output      Write output to file (default: stdout)
+
+Examples:
+  ait coe-review coe.md
+  ait coe-review coe.md -o coe-feedback.md"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_output "coe-review" "$(basename "$POSITIONAL" .md)"
+    if [[ ! -f "$POSITIONAL" ]]; then
+        echo "Error: file not found: $POSITIONAL" >&2
+        exit 1
+    fi
+
+    load_skill "coe-review"
+    local prompt="${SHARED_CONTENT}
+
+---
+
+${SKILL_CONTENT}
+
+---
+
+COE to review:
+
+$(cat "$POSITIONAL")"
+
+    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
+    prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the review directly. Do not ask for clarification or confirmation."
+
+    run_llm "$prompt" "$OUTPUT_FILE"
+}
+
+# --- Subcommand: op1-review ---
+
+cmd_op1_review() {
+    local usage="Usage: ait op1-review <op1-file> [--context <file>]... [--output <file>]
+
+  <op1-file>        Path to the OP1 narrative markdown file to review
+  -c, --context     Inject a context file (repeatable)
+  -o, --output      Write output to file (default: stdout)
+
+Examples:
+  ait op1-review op1.md
+  ait op1-review op1.md -c strategy.md -o op1-feedback.md"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_output "op1-review" "$(basename "$POSITIONAL" .md)"
+    if [[ ! -f "$POSITIONAL" ]]; then
+        echo "Error: file not found: $POSITIONAL" >&2
+        exit 1
+    fi
+
+    load_skill "op1-review"
+    local prompt="${SHARED_CONTENT}
+
+---
+
+${SKILL_CONTENT}
+
+---
+
+OP1 to review:
+
+$(cat "$POSITIONAL")"
+
+    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
+    prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the review directly. Do not ask for clarification or confirmation."
+
+    run_llm "$prompt" "$OUTPUT_FILE"
+}
+
+# --- Subcommand: mbr-review ---
+
+cmd_mbr_review() {
+    local usage="Usage: ait mbr-review <mbr-file> [--context <file>]... [--output <file>]
+
+  <mbr-file>        Path to the MBR narrative markdown file to review
+  -c, --context     Inject a context file (repeatable)
+  -o, --output      Write output to file (default: stdout)
+
+Examples:
+  ait mbr-review mbr.md
+  ait mbr-review mbr.md -o mbr-feedback.md"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_output "mbr-review" "$(basename "$POSITIONAL" .md)"
+    if [[ ! -f "$POSITIONAL" ]]; then
+        echo "Error: file not found: $POSITIONAL" >&2
+        exit 1
+    fi
+
+    load_skill "mbr-review"
+    local prompt="${SHARED_CONTENT}
+
+---
+
+${SKILL_CONTENT}
+
+---
+
+MBR to review:
+
+$(cat "$POSITIONAL")"
+
+    prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
+    prompt="${prompt}
+
+---
+
+IMPORTANT: This is an async task. Output the review directly. Do not ask for clarification or confirmation."
+
+    run_llm "$prompt" "$OUTPUT_FILE"
+}
+
 # --- Subcommand: config ---
 
 cmd_config() {
@@ -614,6 +790,12 @@ Commands:
   review          Stress-test a draft HLD
   one-pager       One-page summary for stakeholders
   exec-comms      Transform technical comms into FIR format
+
+  prfaq-review    VP-level review of a PRFAQ
+  coe-review      VP-level review of a COE
+  op1-review      VP-level review of an OP1 narrative
+  mbr-review      VP-level review of an MBR narrative
+
   config          View or set configuration
 
 Common flags:
@@ -647,6 +829,10 @@ case "$COMMAND" in
     review)          require_backend; cmd_review "$@" ;;
     one-pager)       require_backend; cmd_one_pager "$@" ;;
     exec-comms)      require_backend; cmd_exec_comms "$@" ;;
+    prfaq-review)    require_backend; cmd_prfaq_review "$@" ;;
+    coe-review)      require_backend; cmd_coe_review "$@" ;;
+    op1-review)      require_backend; cmd_op1_review "$@" ;;
+    mbr-review)      require_backend; cmd_mbr_review "$@" ;;
     config)          cmd_config "$@" ;;
     --help|-h)       main_usage ;;
     *) echo "Unknown command: $COMMAND" >&2; echo "" >&2; main_usage ;;

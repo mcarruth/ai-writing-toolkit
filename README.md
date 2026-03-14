@@ -167,6 +167,42 @@ ait exec-comms "We had an outage today for 55 minutes due to memory issues"
 ait exec-comms draft-email.txt -c roadmap.md -o exec-update.md
 ```
 
+### `ait prfaq-review` — PRFAQ review
+
+Reviews a PRFAQ from the perspective of a VP of Engineering. Evaluates whether the customer problem is real and large enough, whether the solution is genuinely differentiated, and whether the FAQs answer the hard questions or avoid them.
+
+```bash
+ait prfaq-review prfaq.md
+ait prfaq-review prfaq.md -c strategy.md -o prfaq-feedback.md
+```
+
+### `ait coe-review` — COE review
+
+Reviews a Correction of Errors document from the perspective of a VP of Engineering. Evaluates whether the root cause analysis went deep enough, whether action items are structural fixes or surface patches, and whether the document is honest about what went wrong.
+
+```bash
+ait coe-review coe.md
+ait coe-review coe.md -o coe-feedback.md
+```
+
+### `ait op1-review` — OP1 review
+
+Reviews an Operating Plan narrative from the perspective of a VP of Engineering. Evaluates whether priorities are clear and ranked, whether investment asks are tied to measurable outcomes, and whether risks and tradeoffs are disclosed honestly.
+
+```bash
+ait op1-review op1.md
+ait op1-review op1.md -c strategy.md -o op1-feedback.md
+```
+
+### `ait mbr-review` — MBR review
+
+Reviews a Monthly Business Review narrative from the perspective of a VP of Engineering. Evaluates whether bad news is surfaced directly, whether metric trends are explained with clear next actions, and whether asks to leadership are specific.
+
+```bash
+ait mbr-review mbr.md
+ait mbr-review mbr.md -o mbr-feedback.md
+```
+
 ### `ait config` — Configuration
 
 View or set configuration values.
@@ -215,9 +251,13 @@ skills/
   research-deep/SKILL.md      # research brief instructions
   design-options/SKILL.md     # design options instructions
   hld-draft/SKILL.md          # HLD instructions
-  review-prep/SKILL.md        # review prep instructions
+  review-prep/SKILL.md        # HLD review instructions
   one-pager/SKILL.md          # one-pager instructions
   exec-comms/SKILL.md         # exec comms instructions
+  prfaq-review/SKILL.md       # PRFAQ review instructions
+  coe-review/SKILL.md         # COE review instructions
+  op1-review/SKILL.md         # OP1 review instructions
+  mbr-review/SKILL.md         # MBR review instructions
 ```
 
 Edit any `SKILL.md` to change the output style, structure, or tone. Changes take effect immediately.
