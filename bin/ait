@@ -179,6 +179,9 @@ run_backend() {
                 | grep -v "^ ⋮" \
                 | grep -v "^ - Completed in" \
                 | grep -v "^> " \
+                | grep -v "^WARNING:" \
+                | grep -v "^INFO:" \
+                | sed 's/^━━━━━*/---/' \
                 | sed '/^$/N;/^\n$/d'
             ;;
         claude-code)
@@ -275,10 +278,18 @@ IMPORTANT: This is an async task. Begin your response with a filename on its own
 FILENAME: kebab-case-name
 The filename should be 3-5 kebab-case words that describe what this document is about (e.g. kinesis-task-dispatcher-hld, agent-memory-architecture, prfaq-ads-unified-reporting). Then a blank line, then the full document as raw markdown. The document must begin with YAML front matter: the very first line of the document must be --- (three dashes only), followed by the YAML fields, followed by --- (three dashes only) on its own line, then the document body. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly."
 
-        local raw suggested content
+        local raw suggested content fname_linenum
         raw=$(capture_llm "$named_prompt")
-        suggested=$(printf '%s\n' "$raw" | head -1 | sed 's/^FILENAME:[[:space:]]*//')
-        content=$(printf '%s\n' "$raw" | sed '1,2d')
+        # Find FILENAME line regardless of position (kiro may inject noise before it)
+        fname_linenum=$(printf '%s\n' "$raw" | grep -n "^FILENAME:" | head -1 | cut -d: -f1 || true)
+        if [[ -n "$fname_linenum" ]]; then
+            suggested=$(printf '%s\n' "$raw" | sed -n "${fname_linenum}p" | sed 's/^FILENAME:[[:space:]]*//')
+            local content_start=$((fname_linenum + 2))
+            content=$(printf '%s\n' "$raw" | tail -n +"$content_start")
+        else
+            suggested=""
+            content="$raw"
+        fi
 
         if [[ ! "$suggested" =~ ^[a-z0-9-]+$ ]]; then
             suggested=$(slugify "${POSITIONAL:0:50}")
@@ -286,7 +297,8 @@ The filename should be 3-5 kebab-case words that describe what this document is 
 
         local out="${AIT_OUTPUT_DIR}/${type}/${suggested}.md"
         mkdir -p "$(dirname "$out")"
-        printf '%s\n' "$content" > "$out"
+        # Strip leading blank lines so front matter --- is the first line
+        printf '%s\n' "$content" | sed '/./,$!d' > "$out"
         echo "Saved: $out" >&2
     else
         local full_prompt="${prompt}
