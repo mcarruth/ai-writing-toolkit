@@ -278,7 +278,7 @@ The filename should be 3-5 kebab-case words that describe what this document is 
         local raw suggested content
         raw=$(capture_llm "$named_prompt")
         suggested=$(printf '%s\n' "$raw" | head -1 | sed 's/^FILENAME:[[:space:]]*//')
-        content=$(printf '%s\n' "$raw" | sed '1,2d')
+        content=$(printf '%s\n' "$raw" | sed '1{/^FILENAME:/d}' | sed '1{/^[[:space:]]*$/d}')
 
         if [[ ! "$suggested" =~ ^[a-z0-9-]+$ ]]; then
             suggested=$(slugify "${POSITIONAL:0:50}")
