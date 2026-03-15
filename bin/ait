@@ -198,6 +198,17 @@ run_backend() {
     esac
 }
 
+resolve_positional() {
+    # If POSITIONAL is an existing file, read its contents as the input and
+    # record the basename for use in filename generation.
+    POSITIONAL_NAME="$POSITIONAL"
+    if [[ -f "$POSITIONAL" ]]; then
+        POSITIONAL_NAME=$(basename "$POSITIONAL")
+        POSITIONAL_NAME="${POSITIONAL_NAME%.*}"
+        POSITIONAL=$(cat "$POSITIONAL")
+    fi
+}
+
 slugify() {
     echo "$1" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '-' | sed 's/^-//;s/-$//'
 }
@@ -295,14 +306,7 @@ The filename should be 3-5 kebab-case words that describe what this document is 
         fi
 
         if [[ ! "$suggested" =~ ^[a-z0-9-]+$ ]]; then
-            # If POSITIONAL looks like a file path, use the basename; otherwise slugify the text
-            if [[ "$POSITIONAL" == /* || "$POSITIONAL" == ~* ]]; then
-                local base
-                base=$(basename "$POSITIONAL")
-                suggested=$(slugify "${base%.*}")
-            else
-                suggested=$(slugify "${POSITIONAL:0:50}")
-            fi
+            suggested=$(slugify "${POSITIONAL_NAME:0:50}")
         fi
 
         local out="${AIT_OUTPUT_DIR}/${type}/${suggested}.md"
@@ -337,9 +341,10 @@ Examples:
 
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_positional
     resolve_context_files
     local explicit_output="$OUTPUT_FILE"
-    resolve_output "research" "$POSITIONAL"
+    resolve_output "research" "$POSITIONAL_NAME"
 
     load_skill "research"
     local prompt="${SHARED_CONTENT}
@@ -371,9 +376,10 @@ Examples:
 
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_positional
     resolve_context_files
     local explicit_output="$OUTPUT_FILE"
-    resolve_output "design-options" "$POSITIONAL"
+    resolve_output "design-options" "$POSITIONAL_NAME"
 
     load_skill "design-options"
     local prompt="${SHARED_CONTENT}
@@ -408,9 +414,10 @@ Examples:
 
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
+    resolve_positional
     resolve_context_files
     local explicit_output="$OUTPUT_FILE"
-    resolve_output "$type" "$POSITIONAL"
+    resolve_output "$type" "$POSITIONAL_NAME"
 
     load_skill "${type}/write"
     local prompt="${SHARED_CONTENT}
