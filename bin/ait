@@ -184,6 +184,11 @@ run_backend() {
                 | grep -v "^> " \
                 | grep -v "^WARNING:" \
                 | grep -v "^INFO:" \
+                | grep -v "^Batch " \
+                | grep -v "^Purpose:" \
+                | grep -v "^↱ " \
+                | grep -v "^ ✓ " \
+                | grep -v "^- Summary:" \
                 | sed 's/^━━━━━*/---/' \
                 | sed '/^$/N;/^\n$/d'
             ;;
@@ -311,6 +316,10 @@ The filename should be 3-5 kebab-case words that describe what this document is 
 
         local out="${AIT_OUTPUT_DIR}/${type}/${suggested}.md"
         mkdir -p "$(dirname "$out")"
+        # Strip any kiro preamble before the opening --- of YAML front matter
+        local stripped
+        stripped=$(printf '%s\n' "$content" | awk '/^---$/{found=1} found{print}')
+        [[ -n "$stripped" ]] && content="$stripped"
         # Strip leading blank lines so front matter --- is the first line
         printf '%s\n' "$content" | sed '/./,$!d' > "$out"
         echo "Saved: $out" >&2
