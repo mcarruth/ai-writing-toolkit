@@ -311,7 +311,11 @@ The filename should be 3-5 kebab-case words that describe what this document is 
         fi
 
         if [[ ! "$suggested" =~ ^[a-z0-9-]+$ ]]; then
-            suggested=$(slugify "${POSITIONAL_NAME:0:50}")
+            # Slugify then truncate at a word boundary (no mid-word cuts)
+            local full_slug
+            full_slug=$(slugify "$POSITIONAL_NAME")
+            suggested=$(printf '%s' "$full_slug" | cut -c1-55 | sed 's/-[^-]*$//')
+            [[ -z "$suggested" ]] && suggested=$(printf '%s' "$full_slug" | cut -c1-55)
         fi
 
         local out="${AIT_OUTPUT_DIR}/${type}/${suggested}.md"
