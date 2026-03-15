@@ -295,7 +295,14 @@ The filename should be 3-5 kebab-case words that describe what this document is 
         fi
 
         if [[ ! "$suggested" =~ ^[a-z0-9-]+$ ]]; then
-            suggested=$(slugify "${POSITIONAL:0:50}")
+            # If POSITIONAL looks like a file path, use the basename; otherwise slugify the text
+            if [[ "$POSITIONAL" == /* || "$POSITIONAL" == ~* ]]; then
+                local base
+                base=$(basename "$POSITIONAL")
+                suggested=$(slugify "${base%.*}")
+            else
+                suggested=$(slugify "${POSITIONAL:0:50}")
+            fi
         fi
 
         local out="${AIT_OUTPUT_DIR}/${type}/${suggested}.md"
