@@ -155,13 +155,16 @@ run_llm() {
     trap 'rm -f "$AIT_TMPFILE"' EXIT
     printf '%s\n' "$prompt" > "$AIT_TMPFILE"
 
-    run_backend "$AIT_TMPFILE" \
-        | if [[ -n "$output_file" ]]; then
-            mkdir -p "$(dirname "$output_file")"
-            tee "$output_file" > /dev/null && echo "Saved: $output_file" >&2
-        else
-            cat
-        fi
+    if [[ -n "$output_file" ]]; then
+        # Buffer full output before writing — streaming writes to Google Drive FUSE time out
+        local output
+        output=$(run_backend "$AIT_TMPFILE")
+        mkdir -p "$(dirname "$output_file")"
+        printf '%s\n' "$output" > "$output_file"
+        echo "Saved: $output_file" >&2
+    else
+        run_backend "$AIT_TMPFILE"
+    fi
 }
 
 run_backend() {
