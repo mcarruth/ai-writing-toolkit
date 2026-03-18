@@ -59,6 +59,22 @@ context: ["[[filename-without-extension]]", "[[another-filename]]"]
 ---
 ```
 
+Concrete example (match this format exactly):
+
+```
+---
+topic: "Ads Agent Orchestrator: Self-Service Onboarding via MCP"
+date: 2026-03-17
+type: research
+status: Draft
+version: "1.0"
+tags: [ads-agent, mcp, onboarding]
+context: ["[[ads-agent-orchestrator-context]]", "[[on-demand-agents-technical-design]]"]
+---
+```
+
+Omit the `context` field entirely when no context files were provided.
+
 **YAML quoting rule:** Always wrap the `topic` value in double quotes. YAML treats a bare colon followed by a space as a key-value separator — a title like `How to Win Friends: A Brief` will break the parser unless quoted.
 
 For the `context` field: if context files were injected (you will see them as `--- Context: filename ---` blocks in the prompt), list each source file as an Obsidian wiki link using only the filename without its extension — for example, `"[[ads-agent-orchestrator-context]]"`. Omit the `context` field entirely if no context files were provided.
