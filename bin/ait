@@ -93,22 +93,6 @@ load_skill() {
     SKILL_CONTENT=$(cat "$skill")
 }
 
-resolve_context_files() {
-    local -a resolved=()
-    for ctx in "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}"; do
-        if [[ ! -f "$ctx" ]] && [[ -n "${AIT_OUTPUT_DIR:-}" ]] && [[ "$ctx" == "$(basename "$ctx")" ]]; then
-            local match_count match_path
-            match_count=$(find "$AIT_OUTPUT_DIR" -name "$ctx" -type f | wc -l | tr -d ' ')
-            if [[ "$match_count" -eq 1 ]]; then
-                match_path=$(find "$AIT_OUTPUT_DIR" -name "$ctx" -type f)
-                ctx="$match_path"
-            fi
-        fi
-        resolved+=("$ctx")
-    done
-    CONTEXT_FILES=("${resolved[@]+"${resolved[@]}"}")
-}
-
 append_context() {
     local prompt="$1"
     shift
@@ -173,23 +157,13 @@ run_backend() {
         kiro)
             cat "$infile" \
                 | kiro-cli chat --no-interactive --trust-all-tools --wrap never --model "$AIT_MODEL" 2>&1 \
-                | perl -pe 's/\x1b\[[0-9;?]*[a-zA-Z]//g' \
-                | grep -v "▸.*Credits:" \
-                | grep -v "All tools are now trusted" \
-                | grep -v "Agents can sometimes do unexpected" \
-                | grep -v "kiro.dev/docs" \
+                | perl -pe 's/\x1b\[[0-9;?]*[a-zA-Z]//g; s/^(?:---)?(?:\xe2\x94\x81)+$/---/' \
                 | grep -v "^Running tool " \
                 | grep -v "^ ⋮" \
                 | grep -v "^ - Completed in" \
-                | grep -v "^> " \
-                | grep -v "^WARNING:" \
-                | grep -v "^INFO:" \
-                | grep -v "^Batch " \
-                | grep -v "^Purpose:" \
-                | grep -v "^↱ " \
                 | grep -v "^ ✓ " \
-                | grep -v "^- Summary:" \
-                | sed 's/^━━━━━*/---/' \
+                | grep -v "^↱ " \
+                | grep -v "Credits: [0-9]" \
                 | sed '/^$/N;/^\n$/d'
             ;;
         claude-code)
@@ -218,11 +192,20 @@ slugify() {
     echo "$1" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '-' | sed 's/^-//;s/-$//'
 }
 
-auto_output() {
-    local cmd="$1" topic="$2"
-    if [[ -n "${AIT_OUTPUT_DIR:-}" ]]; then
-        echo "${AIT_OUTPUT_DIR}/${cmd}/$(slugify "$topic").md"
+generate_filename() {
+    local topic="$1" type="$2"
+    local prompt="Output a single kebab-case filename (3-5 words, lowercase letters and hyphens only, no extension) that describes this ${type} document about: ${topic}
+Output in this exact format: FILENAME: my-doc-name"
+    local raw suggested
+    raw=$(capture_llm "$prompt")
+    suggested=$(printf '%s\n' "$raw" | sed 's/^[> ]*//' | grep '^FILENAME:' | head -1 | sed 's/^FILENAME:[[:space:]]*//' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9-' '-' | sed 's/^-*//;s/-*$//')
+    if [[ ! "$suggested" =~ ^[a-z0-9][a-z0-9-]*$ ]] || [[ -z "$suggested" ]]; then
+        local full_slug
+        full_slug=$(slugify "$topic")
+        suggested=$(printf '%s' "$full_slug" | cut -c1-55 | sed 's/-[^-]*$//')
+        [[ -z "$suggested" ]] && suggested=$(printf '%s' "$full_slug" | cut -c1-55)
     fi
+    printf '%s' "$suggested"
 }
 
 resolve_output() {
@@ -232,7 +215,7 @@ resolve_output() {
         OUTPUT_FILE="${OUTPUT_FILE}$(slugify "$topic").md"
     elif [[ -z "$OUTPUT_FILE" ]]; then
         # No -o flag: auto-generate path under output-dir
-        OUTPUT_FILE=$(auto_output "$cmd" "$topic")
+        [[ -n "${AIT_OUTPUT_DIR:-}" ]] && OUTPUT_FILE="${AIT_OUTPUT_DIR}/${cmd}/$(slugify "$topic").md"
     elif [[ -n "${AIT_OUTPUT_DIR:-}" ]] && [[ "$OUTPUT_FILE" == "$(basename "$OUTPUT_FILE")" ]]; then
         # Bare filename (no directory component): prepend output-dir/cmd/
         local fname="$OUTPUT_FILE"
@@ -269,6 +252,10 @@ parse_context_and_output() {
                 done
                 OUTPUT_FILE="$opath"
                 ;;
+            --model|-m)
+                AIT_MODEL="$2"
+                shift 2
+                ;;
             --help|-h) return 1 ;;
             -*) echo "Unknown flag: $1" >&2; return 1 ;;
             *)
@@ -298,58 +285,87 @@ validate_frontmatter() {
     fi
 }
 
+generate_frontmatter() {
+    local topic_input="$1" type="$2"
+    local prompt="Generate YAML front matter fields for a ${type} document. The document is about: ${topic_input}
+
+Output exactly two lines, nothing else:
+topic: \"Short descriptive title, 5-8 words max, in title case\"
+tags: [kebab-case-tag, another-tag, up-to-six-tags]"
+    local raw topic_line tags_line
+    raw=$(capture_llm "$prompt")
+    topic_line=$(printf '%s\n' "$raw" | sed 's/^[> ]*//' | grep '^topic:' | head -1)
+    tags_line=$(printf '%s\n' "$raw" | sed 's/^[> ]*//' | grep '^tags:' | head -1)
+    if [[ -z "$topic_line" ]]; then
+        # Convert slug fallback (e.g. "context-window-accuracy") to title case
+        local title
+        title=$(printf '%s' "$topic_input" | tr '-' ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2); print}')
+        topic_line="topic: \"${title}\""
+    fi
+    [[ -z "$tags_line" ]] && tags_line="tags: []"
+    printf '%s\n%s\n' "$topic_line" "$tags_line"
+}
+
 run_llm_named() {
     local prompt="$1" type="$2" explicit_output="$3"
 
-    # If no explicit output and output-dir is set, ask the LLM to name the file
-    if [[ -z "$explicit_output" ]] && [[ -n "${AIT_OUTPUT_DIR:-}" ]]; then
-        local named_prompt="${prompt}
+    local body_prompt="${prompt}
 
 ---
 
-IMPORTANT: This is an async task. Begin your response with a filename on its own line in this exact format:
-FILENAME: kebab-case-name
-The filename should be 3-5 kebab-case words that describe what this document is about (e.g. kinesis-task-dispatcher-hld, agent-memory-architecture, prfaq-ads-unified-reporting). Then a blank line, then the full document as raw markdown. The document must begin with YAML front matter: the very first line of the document must be --- (three dashes only), followed by the YAML fields, followed by --- (three dashes only) on its own line, then the document body. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly."
+IMPORTANT: This is an async task. Output the document body as raw markdown. Start directly with the first section heading. Do not include YAML front matter. Do not wrap in a code fence. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly."
 
-        local raw suggested content fname_linenum
-        raw=$(capture_llm "$named_prompt")
-        # Find FILENAME line regardless of position (kiro may inject noise before it)
-        fname_linenum=$(printf '%s\n' "$raw" | grep -n "^FILENAME:" | head -1 | cut -d: -f1 || true)
-        if [[ -n "$fname_linenum" ]]; then
-            suggested=$(printf '%s\n' "$raw" | sed -n "${fname_linenum}p" | sed 's/^FILENAME:[[:space:]]*//')
-            local content_start=$((fname_linenum + 2))
-            content=$(printf '%s\n' "$raw" | tail -n +"$content_start")
-        else
-            suggested=""
-            content="$raw"
+    # Determine output path
+    local out_file="$explicit_output"
+    local suggested=""
+    if [[ -z "$out_file" ]] && [[ -n "${AIT_OUTPUT_DIR:-}" ]]; then
+        suggested=$(generate_filename "$POSITIONAL_NAME" "$type")
+        out_file="${AIT_OUTPUT_DIR}/${type}/${suggested}.md"
+    elif [[ -n "$out_file" ]]; then
+        # Derive a short hint from the explicit output filename for front matter
+        suggested=$(basename "$out_file")
+        suggested="${suggested%.*}"
+    fi
+
+    if [[ -n "$out_file" ]]; then
+        # Generate front matter fields via a separate focused LLM call.
+        # Pass the short filename (e.g. "context-window-accuracy") as the hint
+        # so the LLM produces a concise title instead of echoing the full prompt.
+        local fm_hint="${suggested:-$POSITIONAL_NAME}"
+        local fm_lines today context_field yaml
+        fm_lines=$(generate_frontmatter "$fm_hint" "$type")
+        today=$(date +%Y-%m-%d)
+
+        # Build context field from known context files
+        context_field=""
+        if [[ ${#CONTEXT_FILES[@]} -gt 0 ]]; then
+            local ctx_items="" ctx name
+            for ctx in "${CONTEXT_FILES[@]}"; do
+                name=$(basename "$ctx"); name="${name%.*}"
+                ctx_items="${ctx_items}\"[[${name}]]\", "
+            done
+            context_field=$'\n'"context: [${ctx_items%, }]"
         fi
 
-        if [[ ! "$suggested" =~ ^[a-z0-9-]+$ ]]; then
-            # Slugify then truncate at a word boundary (no mid-word cuts)
-            local full_slug
-            full_slug=$(slugify "$POSITIONAL_NAME")
-            suggested=$(printf '%s' "$full_slug" | cut -c1-55 | sed 's/-[^-]*$//')
-            [[ -z "$suggested" ]] && suggested=$(printf '%s' "$full_slug" | cut -c1-55)
-        fi
+        yaml="${fm_lines}
+date: ${today}
+type: ${type}
+status: Draft
+version: \"1.0\"${context_field}"
 
-        local out="${AIT_OUTPUT_DIR}/${type}/${suggested}.md"
-        mkdir -p "$(dirname "$out")"
-        # Strip any kiro preamble before the opening --- of YAML front matter
-        local stripped
-        stripped=$(printf '%s\n' "$content" | awk '/^---$/{found=1} found{print}')
-        [[ -n "$stripped" ]] && content="$stripped"
-        # Strip leading blank lines so front matter --- is the first line
-        printf '%s\n' "$content" | sed '/./,$!d' > "$out"
-        validate_frontmatter "$out"
-        echo "Saved: $out" >&2
+        # Generate body — front matter is handled separately so LLM only writes content
+        local body
+        body=$(capture_llm "$body_prompt")
+
+        # Strip anything before the first heading (kiro noise, code fences, stray front matter)
+        body=$(printf '%s\n' "$body" | awk '/^#/{found=1} found{print}')
+
+        mkdir -p "$(dirname "$out_file")"
+        { printf -- '---\n'; printf '%s\n' "$yaml"; printf -- '---\n'; printf '%s\n' "$body"; } > "$out_file"
+        validate_frontmatter "$out_file"
+        echo "Saved: $out_file" >&2
     else
-        local full_prompt="${prompt}
-
----
-
-IMPORTANT: This is an async task. Output the document as raw markdown. The document must begin with YAML front matter: the very first line must be --- (three dashes only), followed by the YAML fields, followed by --- (three dashes only) on its own line, then the document body. Do not wrap the output in a code fence. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly."
-
-        run_llm "$full_prompt" "$explicit_output"
+        run_llm "$body_prompt" ""
     fi
 }
 
@@ -370,7 +386,7 @@ Examples:
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
     resolve_positional
-    resolve_context_files
+
     local explicit_output="$OUTPUT_FILE"
     resolve_output "research" "$POSITIONAL_NAME"
 
@@ -405,7 +421,7 @@ Examples:
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
     resolve_positional
-    resolve_context_files
+
     local explicit_output="$OUTPUT_FILE"
     resolve_output "design-options" "$POSITIONAL_NAME"
 
@@ -443,7 +459,7 @@ Examples:
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
     resolve_positional
-    resolve_context_files
+
     local explicit_output="$OUTPUT_FILE"
     resolve_output "$type" "$POSITIONAL_NAME"
 
@@ -602,7 +618,16 @@ Examples:
   ait config output-dir ~/work/ait
   ait config custom-command 'my-llm-cli --no-interactive'"
 
-    if [[ $# -eq 0 ]]; then echo "$usage" >&2; exit 1; fi
+    if [[ $# -eq 0 ]]; then
+        local b m o c
+        b=$(read_config_val backend); m=$(read_config_val model)
+        o=$(read_config_val output_dir); c=$(read_config_val custom_command)
+        echo "backend:    ${b:-<not set>} (default: $DEFAULT_BACKEND)"
+        echo "model:      ${m:-<not set>} (default: $AIT_MODEL)"
+        echo "output-dir: ${o:-<not set>}"
+        echo "custom-cmd: ${c:-<not set>}"
+        return 0
+    fi
 
     local key="$1"
     local config_key
@@ -692,6 +717,7 @@ Commands:
 Common flags:
   -c, --context <file>   Inject a context file (repeatable)
   -o, --output <file>    Write output to file (default: stdout)
+  -m, --model <name>     Override model for this invocation
   -h, --help             Show help
 
 Backend: $AIT_BACKEND (model: $AIT_MODEL)

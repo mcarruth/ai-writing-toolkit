@@ -104,6 +104,7 @@ ait <command> [options]
 Every command accepts:
 - `-c, --context <file>` to inject context files (repeatable)
 - `-o, --output <file>` to write output to a file instead of stdout
+- `-m, --model <name>` to override the model for this invocation
 - `-h, --help` for command-specific help
 
 When an output directory is configured, bare filenames passed to `-c` are automatically resolved against it — so `ait write hld "my notes" -c research.md` finds `research.md` in your output directory without a full path.
