@@ -9,7 +9,7 @@ SKILLS_DIR="$REPO_ROOT/skills"
 # --- Defaults ---
 DEFAULT_BACKEND="kiro"
 DEFAULT_MODEL_CLAUDE="claude-sonnet-4-6"
-DEFAULT_MODEL_KIRO="claude-sonnet-4.5"
+DEFAULT_MODEL_KIRO="claude-sonnet-4.6"
 
 # --- Config ---
 AIT_CONFIG_FILE="$HOME/.ait/config"
@@ -19,7 +19,6 @@ read_config_val() {
     if [[ -f "$AIT_CONFIG_FILE" ]]; then
         local val
         val=$(grep "^${key}=" "$AIT_CONFIG_FILE" 2>/dev/null | cut -d= -f2- || true)
-        # Strip surrounding single or double quotes (e.g. output_dir="/path with spaces")
         val="${val#\"}" ; val="${val%\"}"
         val="${val#\'}" ; val="${val%\'}"
         printf '%s' "$val"
@@ -65,18 +64,9 @@ require_backend() {
                 exit 1
             fi
             ;;
-        custom)
-            local cmd
-            cmd=$(read_config_val custom_command)
-            if [[ -z "$cmd" ]]; then
-                echo "Error: backend=custom but no custom_command configured." >&2
-                echo "Set it: ait config custom-command 'your-cli --flags'" >&2
-                exit 1
-            fi
-            ;;
         *)
             echo "Error: unknown backend '$AIT_BACKEND'." >&2
-            echo "Supported: kiro, claude-code, custom" >&2
+            echo "Supported: kiro, claude-code" >&2
             exit 1
             ;;
     esac
@@ -124,6 +114,10 @@ $(cat "$ctx")
 
 capture_llm() {
     local prompt="$1"
+    if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
+        printf '%s\n' "$prompt"
+        return
+    fi
     local tmpfile
     tmpfile=$(mktemp /tmp/ait-XXXXXX.txt)
     printf '%s\n' "$prompt" > "$tmpfile"
@@ -134,6 +128,11 @@ capture_llm() {
 run_llm() {
     local prompt="$1"
     local output_file="$2"
+
+    if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
+        printf '%s\n' "$prompt"
+        return
+    fi
 
     AIT_TMPFILE=$(mktemp /tmp/ait-XXXXXX.txt)
     trap 'rm -f "$AIT_TMPFILE"' EXIT
@@ -169,17 +168,10 @@ run_backend() {
         claude-code)
             claude -p --model "$AIT_MODEL" < "$infile" 2>/dev/null
             ;;
-        custom)
-            local cmd
-            cmd=$(read_config_val custom_command)
-            eval "$cmd" < "$infile" 2>/dev/null
-            ;;
     esac
 }
 
 resolve_positional() {
-    # If POSITIONAL is an existing file, read its contents as the input and
-    # record the basename for use in filename generation.
     POSITIONAL_NAME="$POSITIONAL"
     if [[ -f "$POSITIONAL" ]]; then
         POSITIONAL_NAME=$(basename "$POSITIONAL")
@@ -211,13 +203,10 @@ Output in this exact format: FILENAME: my-doc-name"
 resolve_output() {
     local cmd="$1" topic="$2"
     if [[ "$OUTPUT_FILE" == */ ]]; then
-        # Trailing slash: treat as directory, append slugified topic
         OUTPUT_FILE="${OUTPUT_FILE}$(slugify "$topic").md"
     elif [[ -z "$OUTPUT_FILE" ]]; then
-        # No -o flag: auto-generate path under output-dir
         [[ -n "${AIT_OUTPUT_DIR:-}" ]] && OUTPUT_FILE="${AIT_OUTPUT_DIR}/${cmd}/$(slugify "$topic").md"
     elif [[ -n "${AIT_OUTPUT_DIR:-}" ]] && [[ "$OUTPUT_FILE" == "$(basename "$OUTPUT_FILE")" ]]; then
-        # Bare filename (no directory component): prepend output-dir/cmd/
         local fname="$OUTPUT_FILE"
         [[ "$fname" != *.* ]] && fname="${fname}.md"
         OUTPUT_FILE="${AIT_OUTPUT_DIR}/${cmd}/${fname}"
@@ -227,7 +216,10 @@ resolve_output() {
 parse_context_and_output() {
     CONTEXT_FILES=()
     OUTPUT_FILE=""
+    INPUT_FILE=""
     POSITIONAL=""
+    DRY_RUN=0
+    NO_FRONTMATTER=0
     local -a _positionals=()
 
     while [[ $# -gt 0 ]]; do
@@ -235,7 +227,6 @@ parse_context_and_output() {
             --context|-c)
                 local cpath="$2"
                 shift 2
-                # Reconstruct path with spaces: consume non-flag args until file found
                 while [[ $# -gt 0 ]] && [[ "$1" != -* ]] && [[ ! -f "$cpath" ]]; do
                     cpath="$cpath $1"
                     shift
@@ -245,16 +236,27 @@ parse_context_and_output() {
             --output|-o)
                 local opath="$2"
                 shift 2
-                # Reconstruct path with spaces: consume non-flag args until a file extension is found
                 while [[ $# -gt 0 ]] && [[ "$1" != -* ]] && [[ ! "$opath" =~ \.[a-zA-Z0-9]{1,5}$ ]]; do
                     opath="$opath $1"
                     shift
                 done
                 OUTPUT_FILE="$opath"
                 ;;
+            --file|-f)
+                INPUT_FILE="$2"
+                shift 2
+                ;;
             --model|-m)
                 AIT_MODEL="$2"
                 shift 2
+                ;;
+            --dry-run)
+                DRY_RUN=1
+                shift
+                ;;
+            --no-frontmatter)
+                NO_FRONTMATTER=1
+                shift
                 ;;
             --help|-h) return 1 ;;
             -*) echo "Unknown flag: $1" >&2; return 1 ;;
@@ -265,11 +267,8 @@ parse_context_and_output() {
         esac
     done
 
-    # Join all positional words — reconstructs unquoted paths with spaces, and
-    # allows multi-word text args (e.g. ait write hld my raw notes) without quoting
     POSITIONAL="${_positionals[*]+"${_positionals[*]}"}"
 }
-
 
 validate_frontmatter() {
     local file="$1"
@@ -297,7 +296,6 @@ tags: [kebab-case-tag, another-tag, up-to-six-tags]"
     topic_line=$(printf '%s\n' "$raw" | sed 's/^[> ]*//' | grep '^topic:' | head -1)
     tags_line=$(printf '%s\n' "$raw" | sed 's/^[> ]*//' | grep '^tags:' | head -1)
     if [[ -z "$topic_line" ]]; then
-        # Convert slug fallback (e.g. "context-window-accuracy") to title case
         local title
         title=$(printf '%s' "$topic_input" | tr '-' ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2); print}')
         topic_line="topic: \"${title}\""
@@ -315,6 +313,11 @@ run_llm_named() {
 
 IMPORTANT: This is an async task. Output the document body as raw markdown. Start directly with the first section heading. Do not include YAML front matter. Do not wrap in a code fence. Do not ask for clarification or confirmation. Where information is missing, make a reasonable assumption and call it out explicitly."
 
+    if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
+        printf '%s\n' "$body_prompt"
+        return
+    fi
+
     # Determine output path
     local out_file="$explicit_output"
     local suggested=""
@@ -322,21 +325,16 @@ IMPORTANT: This is an async task. Output the document body as raw markdown. Star
         suggested=$(generate_filename "$POSITIONAL_NAME" "$type")
         out_file="${AIT_OUTPUT_DIR}/${type}/${suggested}.md"
     elif [[ -n "$out_file" ]]; then
-        # Derive a short hint from the explicit output filename for front matter
         suggested=$(basename "$out_file")
         suggested="${suggested%.*}"
     fi
 
-    if [[ -n "$out_file" ]]; then
-        # Generate front matter fields via a separate focused LLM call.
-        # Pass the short filename (e.g. "context-window-accuracy") as the hint
-        # so the LLM produces a concise title instead of echoing the full prompt.
+    if [[ -n "$out_file" ]] && [[ "${NO_FRONTMATTER:-0}" -eq 0 ]]; then
         local fm_hint="${suggested:-$POSITIONAL_NAME}"
         local fm_lines today context_field yaml
         fm_lines=$(generate_frontmatter "$fm_hint" "$type")
         today=$(date +%Y-%m-%d)
 
-        # Build context field from known context files
         context_field=""
         if [[ ${#CONTEXT_FILES[@]} -gt 0 ]]; then
             local ctx_items="" ctx name
@@ -353,11 +351,8 @@ type: ${type}
 status: Draft
 version: \"1.0\"${context_field}"
 
-        # Generate body — front matter is handled separately so LLM only writes content
         local body
         body=$(capture_llm "$body_prompt")
-
-        # Strip anything before the first heading (kiro noise, code fences, stray front matter)
         body=$(printf '%s\n' "$body" | awk '/^#/{found=1} found{print}')
 
         mkdir -p "$(dirname "$out_file")"
@@ -365,25 +360,30 @@ version: \"1.0\"${context_field}"
         validate_frontmatter "$out_file"
         echo "Saved: $out_file" >&2
     else
-        run_llm "$body_prompt" ""
+        run_llm "$body_prompt" "$out_file"
     fi
 }
 
 # --- Subcommand: research ---
 
 cmd_research() {
-    local usage="Usage: ait research <topic> [-c <file>]... [-o <file>]
+    local usage="Usage: ait research <topic> [-f <file>] [-c <file>]... [-o <file>]
 
-  <topic>           Topic to research (quote multi-word topics)
-  -c, --context     Inject a context file (repeatable)
-  -o, --output      Write output to file (default: stdout)
+  <topic>            Topic to research
+  -f, --file         Read topic/notes from a file
+  -c, --context      Inject a context file (repeatable)
+  -o, --output       Write output to file (default: stdout)
+  --dry-run          Print prompt without calling LLM
+  --no-frontmatter   Output raw markdown, no YAML header
 
 Examples:
   ait research \"transformer attention mechanisms\"
   ait research \"LLM agent memory architectures\" -o research.md
-  ait research \"vector DB tradeoffs\" -c requirements.md"
+  ait research -f notes.md -c requirements.md"
 
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+
+    if [[ -n "$INPUT_FILE" ]]; then POSITIONAL="$INPUT_FILE"; fi
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
     resolve_positional
 
@@ -405,25 +405,30 @@ Topic: ${POSITIONAL}"
     run_llm_named "$prompt" "research" "$explicit_output"
 }
 
-# --- Subcommand: design-options ---
+# --- Subcommand: options ---
 
-cmd_design_options() {
-    local usage="Usage: ait design-options <problem-statement> [-c <file>]... [-o <file>]
+cmd_options() {
+    local usage="Usage: ait options <problem-statement> [-f <file>] [-c <file>]... [-o <file>]
 
-  <problem-statement>  What you need to design (quote it)
+  <problem-statement>  What you need to design
+  -f, --file           Read problem statement from a file
   -c, --context        Inject a context file (repeatable)
   -o, --output         Write output to file (default: stdout)
+  --dry-run            Print prompt without calling LLM
+  --no-frontmatter     Output raw markdown, no YAML header
 
 Examples:
-  ait design-options \"how to store conversation history for LLM agents at 10k RPS\"
-  ait design-options \"sub-agent memory scoping\" -c research.md -o design-options.md"
+  ait options \"how to store conversation history for LLM agents at 10k RPS\"
+  ait options \"sub-agent memory scoping\" -c research.md -o options.md"
 
     parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+
+    if [[ -n "$INPUT_FILE" ]]; then POSITIONAL="$INPUT_FILE"; fi
     if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
     resolve_positional
 
     local explicit_output="$OUTPUT_FILE"
-    resolve_output "design-options" "$POSITIONAL_NAME"
+    resolve_output "options" "$POSITIONAL_NAME"
 
     load_skill "design-options"
     local prompt="${SHARED_CONTENT}
@@ -437,31 +442,13 @@ ${SKILL_CONTENT}
 Problem statement: ${POSITIONAL}"
 
     prompt=$(append_context "$prompt" "${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}")
-    run_llm_named "$prompt" "design-options" "$explicit_output"
+    run_llm_named "$prompt" "options" "$explicit_output"
 }
 
-# --- Subcommand: write ---
+# --- Doc commands (write/review unified by input type) ---
 
-_write_doc() {
-    local type="$1" label="$2"
-    shift 2
-
-    local usage="Usage: ait write ${type} <${label}> [-c <file>]... [-o <file>]
-
-  <${label}>    Your notes or description (quote multi-word input)
-  -c, --context     Inject a context file (repeatable)
-  -o, --output      Write output to file (default: stdout)
-
-Examples:
-  ait write ${type} \"your notes here\"
-  ait write ${type} \"your notes\" -c context.md -o output.md"
-
-    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
-    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
-    resolve_positional
-
-    local explicit_output="$OUTPUT_FILE"
-    resolve_output "$type" "$POSITIONAL_NAME"
+_write_doc_body() {
+    local type="$1" label="$2" explicit_output="$3"
 
     load_skill "${type}/write"
     local prompt="${SHARED_CONTENT}
@@ -478,73 +465,22 @@ ${label}: ${POSITIONAL}"
     run_llm_named "$prompt" "$type" "$explicit_output"
 }
 
-cmd_write() {
-    local type="${1:-}"
-    if [[ -z "$type" ]]; then
-        echo "Usage: ait write <type> [options]" >&2
-        echo "" >&2
-        echo "Types:" >&2
-        echo "  hld          High-level design document" >&2
-        echo "  prfaq        Press release and FAQ (Working Backwards)" >&2
-        echo "  six-pager    Six-page narrative for leadership review" >&2
-        echo "  one-pager    One-page summary for stakeholders" >&2
-        echo "  coe          Correction of Errors" >&2
-        echo "  op1          Operating Plan narrative" >&2
-        echo "  mbr          Monthly Business Review narrative" >&2
-        exit 1
-    fi
-    shift
-
-    case "$type" in
-        hld)        _write_doc "hld" "Engineer's notes and intent" "$@" ;;
-        prfaq)      _write_doc "prfaq" "Product idea and customer problem" "$@" ;;
-        six-pager)  _write_doc "six-pager" "Raw notes and context" "$@" ;;
-        one-pager)  _write_doc "one-pager" "Topic or prompt" "$@" ;;
-        coe)        _write_doc "coe" "Incident notes and timeline" "$@" ;;
-        op1)        _write_doc "op1" "Team goals and investment asks" "$@" ;;
-        mbr)        _write_doc "mbr" "Month's results and asks" "$@" ;;
-        --help|-h)
-            cmd_write
-            ;;
-        *)
-            echo "Unknown type: $type" >&2
-            echo "Types: hld, prfaq, six-pager, one-pager, coe, op1, mbr" >&2
-            exit 1
-            ;;
-    esac
-}
-
-# --- Subcommand: review ---
-
-_review_doc() {
+_review_doc_body() {
     local type="$1"
-    shift
 
-    local usage="Usage: ait review ${type} <file> [-c <file>]... [-o <file>]
-
-  <file>            Path to the ${type} markdown file to review
-  -c, --context     Inject a context file (repeatable)
-  -o, --output      Write output to file (default: stdout)
-
-Examples:
-  ait review ${type} ${type}.md
-  ait review ${type} ${type}.md -c context.md"
-
-    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
-    if [[ -z "$POSITIONAL" ]]; then echo "$usage" >&2; exit 1; fi
     if [[ ! -f "$POSITIONAL" ]]; then
         echo "Error: file not found: $POSITIONAL" >&2
         exit 1
     fi
     if ! file "$POSITIONAL" | grep -q "text"; then
-        echo "Error: $POSITIONAL does not appear to be a text file. Only plain text and markdown files are supported." >&2
+        echo "Error: $POSITIONAL does not appear to be a text file." >&2
         exit 1
     fi
 
-    local basename
-    basename=$(basename "$POSITIONAL")
-    basename="${basename%.*}"
-    resolve_output "$type" "${basename}-review"
+    local docname
+    docname=$(basename "$POSITIONAL")
+    docname="${docname%.*}"
+    resolve_output "$type" "${docname}-review"
 
     load_skill "${type}/review"
     local prompt="${SHARED_CONTENT}
@@ -569,34 +505,44 @@ IMPORTANT: This is an async task. Output the review directly. Do not ask for cla
     run_llm "$prompt" "$OUTPUT_FILE"
 }
 
-cmd_review() {
-    local type="${1:-}"
-    if [[ -z "$type" ]]; then
-        echo "Usage: ait review <type> <file> [options]" >&2
-        echo "" >&2
-        echo "Types:" >&2
-        echo "  hld          High-level design document" >&2
-        echo "  prfaq        Press release and FAQ" >&2
-        echo "  six-pager    Six-page narrative for leadership review" >&2
-        echo "  one-pager    One-page summary for stakeholders" >&2
-        echo "  coe          Correction of Errors" >&2
-        echo "  op1          Operating Plan narrative" >&2
-        echo "  mbr          Monthly Business Review narrative" >&2
-        exit 1
-    fi
-    shift
+cmd_doc() {
+    local type="$1" label="$2"
+    shift 2
 
-    case "$type" in
-        hld|prfaq|six-pager|one-pager|coe|op1|mbr) _review_doc "$type" "$@" ;;
-        --help|-h)
-            cmd_review
-            ;;
-        *)
-            echo "Unknown type: $type" >&2
-            echo "Types: hld, prfaq, six-pager, one-pager, coe, op1, mbr" >&2
-            exit 1
-            ;;
-    esac
+    local usage="Usage: ait ${type} <notes|file.md> [-f <file>] [-c <file>]... [-o <file>]
+
+  <notes>            Your notes (write mode)
+  <file.md>          Existing document to review (review mode)
+  -f, --file         Write from this file instead of a string
+  -c, --context      Inject a context file (repeatable)
+  -o, --output       Write output to file (default: stdout)
+  --dry-run          Print prompt without calling LLM
+  --no-frontmatter   Output raw markdown, no YAML header"
+
+    parse_context_and_output "$@" || { echo "$usage" >&2; exit 1; }
+
+    if [[ -n "$INPUT_FILE" ]]; then
+        # Explicit write-from-file
+        if [[ ! -f "$INPUT_FILE" ]]; then
+            echo "Error: file not found: $INPUT_FILE" >&2; exit 1
+        fi
+        POSITIONAL="$INPUT_FILE"
+        resolve_positional
+        local explicit_output="$OUTPUT_FILE"
+        resolve_output "$type" "$POSITIONAL_NAME"
+        _write_doc_body "$type" "$label" "$explicit_output"
+    elif [[ -z "$POSITIONAL" ]]; then
+        echo "$usage" >&2; exit 1
+    elif [[ -f "$POSITIONAL" ]]; then
+        # Implicit review: positional is an existing file
+        _review_doc_body "$type"
+    else
+        # Write from string
+        resolve_positional
+        local explicit_output="$OUTPUT_FILE"
+        resolve_output "$type" "$POSITIONAL_NAME"
+        _write_doc_body "$type" "$label" "$explicit_output"
+    fi
 }
 
 # --- Subcommand: config ---
@@ -605,27 +551,23 @@ cmd_config() {
     local usage="Usage: ait config <key> [value]
 
 Keys:
-  output-dir [path]         Default output directory
-  backend [name]            LLM backend: kiro, claude-code, custom
-  model [name]              Model name (default: claude-sonnet-4.6)
-  custom-command [cmd]      Shell command for custom backend (reads stdin)
+  output-dir [path]   Default output directory
+  backend [name]      LLM backend: kiro, claude-code
+  model [name]        Model name
 
 Use --clear to remove a value.
 
 Examples:
   ait config backend claude-code
-  ait config model claude-sonnet-4-20250514
-  ait config output-dir ~/work/ait
-  ait config custom-command 'my-llm-cli --no-interactive'"
+  ait config model claude-sonnet-4-6
+  ait config output-dir ~/work/ait"
 
     if [[ $# -eq 0 ]]; then
-        local b m o c
-        b=$(read_config_val backend); m=$(read_config_val model)
-        o=$(read_config_val output_dir); c=$(read_config_val custom_command)
-        echo "backend:    ${b:-<not set>} (default: $DEFAULT_BACKEND)"
-        echo "model:      ${m:-<not set>} (default: $AIT_MODEL)"
+        local b m o
+        b=$(read_config_val backend); m=$(read_config_val model); o=$(read_config_val output_dir)
+        echo "backend:    ${b:-<not set>}"
+        echo "model:      ${m:-auto}"
         echo "output-dir: ${o:-<not set>}"
-        echo "custom-cmd: ${c:-<not set>}"
         return 0
     fi
 
@@ -633,10 +575,9 @@ Examples:
     local config_key
 
     case "$key" in
-        output-dir)      config_key="output_dir" ;;
-        backend)         config_key="backend" ;;
-        model)           config_key="model" ;;
-        custom-command)  config_key="custom_command" ;;
+        output-dir) config_key="output_dir" ;;
+        backend)    config_key="backend" ;;
+        model)      config_key="model" ;;
         *) echo "$usage" >&2; exit 1 ;;
     esac
 
@@ -669,7 +610,6 @@ open('$AIT_CONFIG_FILE', 'w').write(content)
             echo "${config_key}=$2" >> "$AIT_CONFIG_FILE"
         fi
         echo "${key} set to $2"
-        # When backend changes, clear model so the backend-aware default takes effect
         if [[ "$key" == "backend" ]]; then
             python3 -c "
 import re
@@ -691,43 +631,35 @@ ait — AI Writing Toolkit
 Usage: ait <command> [options]
 
 Commands:
-  research          Research brief on any topic
-  design-options    Three differentiated architectural options
+  research      Research brief on any topic
+  options       Three differentiated architectural options
 
-  write <type>      Draft a document
-    hld             High-level design document
-    prfaq           Press release and FAQ (Working Backwards)
-    six-pager       Six-page narrative for leadership review
-    one-pager       One-page summary for stakeholders
-    coe             Correction of Errors
-    op1             Operating Plan narrative
-    mbr             Monthly Business Review narrative
+  hld           High-level design document
+  prfaq         Press release and FAQ (Working Backwards)
+  six-pager     Six-page narrative for leadership review
+  one-pager     One-page summary for stakeholders
+  coe           Correction of Errors
+  op1           Operating Plan narrative
+  mbr           Monthly Business Review narrative
 
-  review <type>     VP-level review of a document
-    hld             High-level design document
-    prfaq           Press release and FAQ
-    six-pager       Six-page narrative for leadership review
-    one-pager       One-page summary for stakeholders
-    coe             Correction of Errors
-    op1             Operating Plan narrative
-    mbr             Monthly Business Review narrative
+  config        View or set configuration
 
-  config            View or set configuration
+Pass a topic string to write, or an existing file to review:
+  ait hld "my notes"      write an HLD from notes
+  ait hld hld.md          review an existing HLD
+  ait hld -f notes.md     write an HLD from a file
 
 Common flags:
+  -f, --file <file>      Primary input file (write mode)
   -c, --context <file>   Inject a context file (repeatable)
   -o, --output <file>    Write output to file (default: stdout)
   -m, --model <name>     Override model for this invocation
+  --dry-run              Print prompt without calling LLM
+  --no-frontmatter       Output raw markdown, no YAML header
   -h, --help             Show help
 
 Backend: $AIT_BACKEND (model: $AIT_MODEL)
-  Change with: ait config backend <kiro|claude-code|custom>
-
-Examples:
-  ait research "agent memory architectures" -o research.md
-  ait design-options "memory scoping" -c research.md -o design-options.md
-  ait write hld "going with option 2" -c research.md -c design-options.md
-  ait review hld hld.md -c research.md
+  Change with: ait config backend <kiro|claude-code>
 EOF
     exit 1
 }
@@ -740,11 +672,16 @@ COMMAND="$1"
 shift
 
 case "$COMMAND" in
-    research)        require_backend; cmd_research "$@" ;;
-    design-options)  require_backend; cmd_design_options "$@" ;;
-    write)           require_backend; cmd_write "$@" ;;
-    review)          require_backend; cmd_review "$@" ;;
-    config)          cmd_config "$@" ;;
-    --help|-h)       main_usage ;;
+    research)   require_backend; cmd_research "$@" ;;
+    options)    require_backend; cmd_options "$@" ;;
+    hld)        require_backend; cmd_doc "hld"       "Engineer's notes and intent"      "$@" ;;
+    prfaq)      require_backend; cmd_doc "prfaq"     "Product idea and customer problem" "$@" ;;
+    six-pager)  require_backend; cmd_doc "six-pager" "Raw notes and context"            "$@" ;;
+    one-pager)  require_backend; cmd_doc "one-pager" "Topic or prompt"                  "$@" ;;
+    coe)        require_backend; cmd_doc "coe"       "Incident notes and timeline"      "$@" ;;
+    op1)        require_backend; cmd_doc "op1"       "Team goals and investment asks"   "$@" ;;
+    mbr)        require_backend; cmd_doc "mbr"       "Month's results and asks"         "$@" ;;
+    config)     cmd_config "$@" ;;
+    --help|-h)  main_usage ;;
     *) echo "Unknown command: $COMMAND" >&2; echo "" >&2; main_usage ;;
 esac
