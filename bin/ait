@@ -205,7 +205,7 @@ resolve_output() {
     if [[ "$OUTPUT_FILE" == */ ]]; then
         OUTPUT_FILE="${OUTPUT_FILE}$(slugify "$topic").md"
     elif [[ -z "$OUTPUT_FILE" ]]; then
-        [[ -n "${AIT_OUTPUT_DIR:-}" ]] && OUTPUT_FILE="${AIT_OUTPUT_DIR}/${cmd}/$(slugify "$topic").md"
+        if [[ -n "${AIT_OUTPUT_DIR:-}" ]]; then OUTPUT_FILE="${AIT_OUTPUT_DIR}/${cmd}/$(slugify "$topic").md"; fi
     elif [[ -n "${AIT_OUTPUT_DIR:-}" ]] && [[ "$OUTPUT_FILE" == "$(basename "$OUTPUT_FILE")" ]]; then
         local fname="$OUTPUT_FILE"
         [[ "$fname" != *.* ]] && fname="${fname}.md"
