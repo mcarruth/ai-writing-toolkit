@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-REPO_ROOT=”$(cd “$(dirname “${BASH_SOURCE[0]}”)” && pwd)”
-BIN_DIR=”$REPO_ROOT/bin”
-MARKER=”# ai-writing-toolkit”
-AIT_CONFIG_DIR=”$HOME/.ait”
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="$REPO_ROOT/bin"
+MARKER="# ai-writing-toolkit"
+AIT_CONFIG_DIR="$HOME/.ait"
 
 # ─────────────────────────────────────────────
 
@@ -14,92 +14,92 @@ AIT_CONFIG_DIR=”$HOME/.ait”
 # ─────────────────────────────────────────────
 
 detect_shell_rc() {
-if [[ -f “$HOME/.zshrc” ]]; then
-echo “$HOME/.zshrc”
-elif [[ -f “$HOME/.bash_profile” ]]; then
-echo “$HOME/.bash_profile”
-elif [[ -f “$HOME/.bashrc” ]]; then
-echo “$HOME/.bashrc”
+if [[ -f "$HOME/.zshrc" ]]; then
+echo "$HOME/.zshrc"
+elif [[ -f "$HOME/.bash_profile" ]]; then
+echo "$HOME/.bash_profile"
+elif [[ -f "$HOME/.bashrc" ]]; then
+echo "$HOME/.bashrc"
 else
-echo “”
+echo ""
 fi
 }
 
 is_installed() {
 local rc
-rc=”$(detect_shell_rc)”
-[[ -n “$rc” ]] && grep -qF “$MARKER” “$rc” 2>/dev/null
+rc="$(detect_shell_rc)"
+[[ -n "$rc" ]] && grep -qF "$MARKER" "$rc" 2>/dev/null
 }
 
 do_add_to_path() {
 local rc
-rc=”$(detect_shell_rc)”
-if [[ -z “$rc” ]]; then
-echo “”
-echo “  Could not find a shell config file. Add this line manually:”
-echo “  $MARKER”
-echo “  export PATH="$BIN_DIR:$PATH"”
+rc="$(detect_shell_rc)"
+if [[ -z "$rc" ]]; then
+echo ""
+echo "  Could not find a shell config file. Add this line manually:"
+echo "  $MARKER"
+echo "  export PATH="$BIN_DIR:$PATH""
 return
 fi
-if grep -qF “$MARKER” “$rc” 2>/dev/null; then
-echo “✓ PATH entry already present in $(basename “$rc”)”
+if grep -qF "$MARKER" "$rc" 2>/dev/null; then
+echo "✓ PATH entry already present in $(basename "$rc")"
 else
 {
-printf ‘\n’
-printf ‘%s\n’ “$MARKER”
-printf ‘export PATH=”%s:$PATH”\n’ “$BIN_DIR”
-} >> “$rc”
-echo “✓ Added to $rc”
-echo “  Activate now: source $rc”
+printf '\n'
+printf '%s\n' "$MARKER"
+printf 'export PATH="%s:$PATH"\n' "$BIN_DIR"
+} >> "$rc"
+echo "✓ Added to $rc"
+echo "  Activate now: source $rc"
 fi
 }
 
 do_remove_from_path() {
 local rc
-rc=”$(detect_shell_rc)”
-if [[ -z “$rc” ]] || ! grep -qF “$MARKER” “$rc” 2>/dev/null; then
-echo “✓ No PATH entry found in shell config”
+rc="$(detect_shell_rc)"
+if [[ -z "$rc" ]] || ! grep -qF "$MARKER" "$rc" 2>/dev/null; then
+echo "✓ No PATH entry found in shell config"
 return
 fi
-python3 - “$rc” “$BIN_DIR” <<‘PYEOF’
+python3 - "$rc" "$BIN_DIR" <<'PYEOF'
 import sys, re
 rc_file, bin_dir = sys.argv[1], sys.argv[2]
 content = open(rc_file).read()
 
 # Remove the marker line and the export PATH line that follows it
 
-pattern = r’\n# ai-writing-toolkit\nexport PATH=”[^”]*:?$PATH”\n?’
-content = re.sub(pattern, ‘\n’, content)
-open(rc_file, ‘w’).write(content)
+pattern = r'\n# ai-writing-toolkit\nexport PATH="[^"]*:?$PATH"\n?'
+content = re.sub(pattern, '\n', content)
+open(rc_file, 'w').write(content)
 PYEOF
-echo “✓ Removed PATH entry from $(basename “$rc”)”
+echo "✓ Removed PATH entry from $(basename "$rc")"
 }
 
 do_detect_backend() {
-local found=””
+local found=""
 if command -v claude &>/dev/null; then
-found=“claude-code”
-echo “✓ claude found”
+found="claude-code"
+echo "✓ claude found"
 elif command -v kiro-cli &>/dev/null; then
-found=“kiro”
-echo “✓ kiro-cli found”
+found="kiro"
+echo "✓ kiro-cli found"
 fi
 
-if [[ -z “$found” ]]; then
-echo “”
-echo “  No supported LLM CLI found. Install one before using ait:”
-echo “  npm install -g @anthropic-ai/claude-code”
-echo “  curl -fsSL https://cli.kiro.dev/install | bash”
-echo “”
-echo “  Then run: ait config backend <claude-code|kiro>”
+if [[ -z "$found" ]]; then
+echo ""
+echo "  No supported LLM CLI found. Install one before using ait:"
+echo "  npm install -g @anthropic-ai/claude-code"
+echo "  curl -fsSL https://cli.kiro.dev/install | bash"
+echo ""
+echo "  Then run: ait config backend <claude-code|kiro>"
 else
-mkdir -p “$AIT_CONFIG_DIR”
-touch “$AIT_CONFIG_DIR/config”
-if grep -q “^backend=” “$AIT_CONFIG_DIR/config” 2>/dev/null; then
-echo “✓ Backend already configured (run ‘ait config’ to change)”
+mkdir -p "$AIT_CONFIG_DIR"
+touch "$AIT_CONFIG_DIR/config"
+if grep -q "^backend=" "$AIT_CONFIG_DIR/config" 2>/dev/null; then
+echo "✓ Backend already configured (run 'ait config' to change)"
 else
-echo “backend=${found}” >> “$AIT_CONFIG_DIR/config”
-echo “✓ Backend set to ${found}”
+echo "backend=${found}" >> "$AIT_CONFIG_DIR/config"
+echo "✓ Backend set to ${found}"
 fi
 fi
 }
@@ -111,71 +111,71 @@ fi
 # ─────────────────────────────────────────────
 
 action_install() {
-echo “”
-chmod +x “$BIN_DIR/ait”
-echo “✓ bin/ait is executable”
-echo “”
+echo ""
+chmod +x "$BIN_DIR/ait"
+echo "✓ bin/ait is executable"
+echo ""
 do_add_to_path
-echo “”
-echo “Detecting LLM backend…”
+echo ""
+echo "Detecting LLM backend…"
 do_detect_backend
-echo “”
-echo “==============================”
-echo “Done. Run ‘ait config’ to review or change settings.”
-echo “”
+echo ""
+echo "=============================="
+echo "Done. Run 'ait config' to review or change settings."
+echo ""
 }
 
 action_update() {
-echo “”
-echo “Pulling latest changes…”
-git -C “$REPO_ROOT” pull
-echo “”
-chmod +x “$BIN_DIR/ait”
-echo “✓ bin/ait is executable”
-echo “”
-echo “==============================”
-echo “Update complete. Config and settings unchanged.”
-echo “”
+echo ""
+echo "Pulling latest changes…"
+git -C "$REPO_ROOT" pull
+echo ""
+chmod +x "$BIN_DIR/ait"
+echo "✓ bin/ait is executable"
+echo ""
+echo "=============================="
+echo "Update complete. Config and settings unchanged."
+echo ""
 }
 
 action_reinstall() {
-echo “”
-echo “Removing existing PATH entry…”
+echo ""
+echo "Removing existing PATH entry…"
 do_remove_from_path
-echo “”
-chmod +x “$BIN_DIR/ait”
-echo “✓ bin/ait is executable”
-echo “”
+echo ""
+chmod +x "$BIN_DIR/ait"
+echo "✓ bin/ait is executable"
+echo ""
 do_add_to_path
-echo “”
-echo “Detecting LLM backend…”
+echo ""
+echo "Detecting LLM backend…"
 do_detect_backend
-echo “”
-echo “==============================”
-echo “Reinstall complete. Config preserved.”
-echo “”
+echo ""
+echo "=============================="
+echo "Reinstall complete. Config preserved."
+echo ""
 }
 
 action_uninstall() {
-echo “”
+echo ""
 do_remove_from_path
-if [[ -d “$AIT_CONFIG_DIR” ]]; then
-rm -rf “$AIT_CONFIG_DIR”
-echo “✓ Removed ~/.ait”
+if [[ -d "$AIT_CONFIG_DIR" ]]; then
+rm -rf "$AIT_CONFIG_DIR"
+echo "✓ Removed ~/.ait"
 else
-echo “✓ No config directory found”
+echo "✓ No config directory found"
 fi
 local rc
-rc=”$(detect_shell_rc)”
-echo “”
-echo “==============================”
-echo “Uninstall complete.”
-echo “”
-[[ -n “$rc” ]] && echo “Run ‘source $rc’ or open a new terminal to update your PATH.”
-echo “”
-echo “The repository at $REPO_ROOT was not removed.”
-echo “To remove it: rm -rf "$REPO_ROOT"”
-echo “”
+rc="$(detect_shell_rc)"
+echo ""
+echo "=============================="
+echo "Uninstall complete."
+echo ""
+[[ -n "$rc" ]] && echo "Run 'source $rc' or open a new terminal to update your PATH."
+echo ""
+echo "The repository at $REPO_ROOT was not removed."
+echo "To remove it: rm -rf "$REPO_ROOT""
+echo ""
 }
 
 # ─────────────────────────────────────────────
@@ -184,25 +184,25 @@ echo “”
 
 # ─────────────────────────────────────────────
 
-echo “AI Writing Toolkit — Installer”
-echo “==============================”
+echo "AI Writing Toolkit — Installer"
+echo "=============================="
 
 if is_installed; then
-echo “”
-echo “Existing installation detected.”
-echo “”
-echo “  [1] Update (git pull, keep config)”
-echo “  [2] Full reinstall (reset PATH entry, keep config)”
-echo “  [3] Uninstall”
-echo “  [4] Cancel”
-echo “”
-read -rp “Choose [1-4]: “ choice
-case “$choice” in
+echo ""
+echo "Existing installation detected."
+echo ""
+echo "  [1] Update (git pull, keep config)"
+echo "  [2] Full reinstall (reset PATH entry, keep config)"
+echo "  [3] Uninstall"
+echo "  [4] Cancel"
+echo ""
+read -rp "Choose [1-4]: " choice
+case "$choice" in
 1) action_update ;;
 2) action_reinstall ;;
 3) action_uninstall ;;
-4) echo “”; echo “Cancelled.”; echo “” ;;
-*) echo “”; echo “Invalid choice. Exiting.”; exit 1 ;;
+4) echo ""; echo "Cancelled."; echo "" ;;
+*) echo ""; echo "Invalid choice. Exiting."; exit 1 ;;
 esac
 else
 action_install
