@@ -68,7 +68,7 @@ content = open(rc_file).read()
 
 # Remove the marker line and the export PATH line that follows it
 
-pattern = r'\n# ai-writing-toolkit\nexport PATH="[^"]*:?$PATH"\n?'
+pattern = r'\n# ai-writing-toolkit\nexport PATH="[^"]*:\$PATH"\n?'
 content = re.sub(pattern, '\n', content)
 open(rc_file, 'w').write(content)
 PYEOF

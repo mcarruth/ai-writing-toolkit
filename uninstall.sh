@@ -20,7 +20,7 @@ if [[ -n "$SHELL_RC" ]] && grep -q "$BIN_DIR" "$SHELL_RC" 2>/dev/null; then
     python3 -c "
 import re
 content = open('$SHELL_RC').read()
-content = re.sub(r'\n# AI Writing Toolkit\nexport PATH=\"[^\"]*ai-writing-toolkit[^\"]*\"[^\n]*\n', '\n', content)
+content = re.sub(r'\n# ai-writing-toolkit\nexport PATH=\"[^\"]*:\$PATH\"\n?', '\n', content)
 open('$SHELL_RC', 'w').write(content)
 "
     echo "✓ Removed PATH entry from $(basename "$SHELL_RC")"
@@ -40,7 +40,7 @@ echo ""
 echo "================================="
 echo "Uninstall complete."
 echo ""
-echo "Run 'source $SHELL_RC' or open a new terminal to update your PATH."
+[[ -n "$SHELL_RC" ]] && echo "Run 'source $SHELL_RC' or open a new terminal to update your PATH."
 echo ""
 echo "The repository at $REPO_ROOT was not removed."
 echo "To remove it: rm -rf \"$REPO_ROOT\""
