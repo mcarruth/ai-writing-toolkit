@@ -1,8 +1,15 @@
 # AI Writing Toolkit
 
-Shell scripts for engineers who need to research unfamiliar topics, think through design options, write high-level technical designs, and produce Amazon narrative documents. Uses any LLM CLI as a first-draft engine.
+A first-draft engine for technical design work and Amazon narratives. Point it at a problem, get back structured docs ready to edit and defend.
 
 All commands go through a single entrypoint: `ait`.
+
+---
+
+## Requirements
+
+- `git`
+- At least one LLM backend CLI: `claude` (Claude Code), `kiro`, or a custom command
 
 ---
 
@@ -14,7 +21,7 @@ All commands go through a single entrypoint: `ait`.
 bash <(curl -fsSL https://raw.githubusercontent.com/mcarruth/ai-writing-toolkit/main/install.sh)
 ```
 
-Clones the repo to `~/.ai-writing-toolkit`, runs the installer, and adds `ait` to your PATH. Requires `git` and at least one LLM backend CLI.
+Clones the repo to `~/.ai-writing-toolkit`, runs the installer, and adds `ait` to your PATH.
 
 ### From a local clone
 
@@ -31,6 +38,8 @@ ait config backend claude-code   # or: kiro, custom
 ait config model claude-sonnet-4-6
 ait config output-dir ~/work/ait  # optional
 ```
+
+If no backend is configured, `ait` will prompt you on first run.
 
 ### Uninstall
 
@@ -59,21 +68,13 @@ ait hld hld.md          # existing file: review that document
 
 No subcommands to remember. The input determines the intent.
 
-### Common flags
-
-| Flag | Description |
-|---|---|
-| `-f, --file <file>` | Read input from a file instead of a string |
-| `-c, --context <file>` | Inject a context file, repeatable |
-| `-o, --output <file>` | Write output to a file (default: stdout) |
-| `-m, --model <name>` | Override model for this invocation |
-| `--dry-run` | Print the prompt without calling the LLM |
-| `--no-frontmatter` | Output raw markdown, no YAML header |
-| `-h, --help` | Show command help |
-
 ---
 
 ## Commands
+
+### Design workflow
+
+Use these to move from a blank page to a reviewed technical design. They chain: research feeds options, options feeds the HLD.
 
 ### `ait research` — Research brief
 
@@ -110,6 +111,10 @@ ait hld hld.md -c research.md -c options.md   # review with context
 ```
 
 ---
+
+### Amazon narratives
+
+First drafts and reviews of Amazon document formats. Each command maps to a specific doc type; the review mode works the same as in the design workflow.
 
 ### `ait prfaq` — Press release and FAQ
 
@@ -183,49 +188,6 @@ ait mbr mbr.md                                # review
 
 ---
 
-### `ait config` — Configuration
-
-View or set configuration values stored in `~/.ait/config`.
-
-```bash
-ait config                            # show all current values
-ait config backend claude-code   # set backend
-ait config backend kiro
-ait config model claude-sonnet-4-6
-ait config output-dir ~/work/ait
-ait config output-dir --clear
-```
-
-Override any setting per-invocation with environment variables:
-
-```bash
-AIT_BACKEND=kiro ait research "some topic"
-AIT_MODEL=claude-sonnet-4-6 ait hld "my notes"
-```
-
----
-
-## Output directory
-
-By default, `ait` prints to stdout. Set a default output directory and `ait` will auto-save files organized by command type.
-
-```bash
-ait config output-dir ~/work/ait
-```
-
-Output files are saved under `<output-dir>/<type>/`. Reviews are saved alongside the document they review, named `<document>-review.md`.
-
-| `-o` value | Saved as |
-|---|---|
-| *(omitted)* | `<output-dir>/<type>/<slugified-topic>.md` |
-| Bare filename (`my-doc` or `my-doc.md`) | `<output-dir>/<type>/my-doc.md` |
-| Trailing slash (`notes/`) | `notes/<slugified-topic>.md` |
-| Any path with a `/` | Used as-is |
-
-When an output directory is configured, bare filenames passed to `-c` are automatically resolved against it. So `ait hld "my notes" -c research.md` finds `research.md` in your output directory without a full path.
-
----
-
 ## Full pipeline
 
 The commands are designed to chain. Output from each step feeds the next via `-c`.
@@ -247,7 +209,59 @@ ait hld hld.md -c research.md -c options.md
 
 ---
 
-## Customizing skills
+## Tips
+
+- **Set an output directory**: Run `ait config output-dir ~/work/ait` and stop typing `-o` on every command. Bare filenames passed to `-c` resolve automatically against it, so the full pipeline works without absolute paths.
+- **Dry run before sending**: Add `--dry-run` to any command to print the full prompt that would be sent to the LLM. Useful for checking context injection or debugging skill output.
+- **Iterate on the HLD**: `ait hld` produces a first draft. Read it, edit it, then pass the file back to `ait hld` for review.
+
+---
+
+## Reference
+
+### Flags
+
+| Flag | Description |
+|---|---|
+| `-f, --file <file>` | Read input from a file instead of a string |
+| `-c, --context <file>` | Inject a context file, repeatable |
+| `-o, --output <file>` | Write output to a file (default: stdout) |
+| `-m, --model <name>` | Override model for this invocation |
+| `--dry-run` | Print the prompt without calling the LLM |
+| `--no-frontmatter` | Output raw markdown, no YAML header |
+| `-h, --help` | Show command help |
+
+### Output directory path resolution
+
+When an output directory is configured, how `-o` values are interpreted:
+
+| `-o` value | Saved as |
+|---|---|
+| *(omitted)* | `<output-dir>/<type>/<slugified-topic>.md` |
+| Bare filename (`my-doc` or `my-doc.md`) | `<output-dir>/<type>/my-doc.md` |
+| Trailing slash (`notes/`) | `notes/<slugified-topic>.md` |
+| Any path with a `/` | Used as-is |
+
+Reviews are saved alongside the document they review, named `<document>-review.md`.
+
+### Configuration
+
+```bash
+ait config                        # show all current values
+ait config backend claude-code    # set backend (claude-code, kiro, custom)
+ait config model claude-sonnet-4-6
+ait config output-dir ~/work/ait
+ait config output-dir --clear
+```
+
+Override any setting per-invocation with environment variables:
+
+```bash
+AIT_BACKEND=kiro ait research "some topic"
+AIT_MODEL=claude-sonnet-4-6 ait hld "my notes"
+```
+
+### Customizing skills
 
 The skills are plain markdown files in `skills/`. Each command maps to a skill file:
 
@@ -280,11 +294,3 @@ skills/
 ```
 
 Edit any `SKILL.md` to change the output style, structure, or tone. Changes take effect immediately.
-
----
-
-## Tips
-
-- **Set an output directory**: Run `ait config output-dir ~/work/ait` and stop typing `-o` on every command. Bare filenames passed to `-c` resolve automatically, so the full pipeline works without absolute paths.
-- **Dry run before sending**: Add `--dry-run` to any command to print the full prompt that would be sent to the LLM. Useful for checking context injection or debugging skill output.
-- **Iterate on the HLD**: `ait hld` produces a first draft. Read it, edit it, then pass the file back to `ait hld` for review.
