@@ -622,6 +622,55 @@ open('$AIT_CONFIG_FILE', 'w').write(content)
     fi
 }
 
+# --- Subcommand: uninstall ---
+
+cmd_uninstall() {
+    echo ""
+    echo "AI Writing Toolkit — Uninstall"
+    echo "=============================="
+    echo ""
+
+    # Remove PATH entry using same detection as install.sh
+    local rc=""
+    if [[ -f "$HOME/.zshrc" ]]; then
+        rc="$HOME/.zshrc"
+    elif [[ -f "$HOME/.bash_profile" ]]; then
+        rc="$HOME/.bash_profile"
+    elif [[ -f "$HOME/.bashrc" ]]; then
+        rc="$HOME/.bashrc"
+    fi
+
+    if [[ -n "$rc" ]] && grep -qF "# ai-writing-toolkit" "$rc" 2>/dev/null; then
+        python3 - "$rc" <<'PYEOF'
+import sys, re
+rc_file = sys.argv[1]
+content = open(rc_file).read()
+content = re.sub(r'\n# ai-writing-toolkit\nexport PATH="[^"]*:\$PATH"\n?', '\n', content)
+open(rc_file, 'w').write(content)
+PYEOF
+        echo "✓ Removed PATH entry from $(basename "$rc")"
+    else
+        echo "✓ No PATH entry found in shell config"
+    fi
+
+    if [[ -d "$HOME/.ait" ]]; then
+        rm -rf "$HOME/.ait"
+        echo "✓ Removed ~/.ait"
+    else
+        echo "✓ No config directory found"
+    fi
+
+    echo ""
+    echo "=============================="
+    echo "Uninstall complete."
+    echo ""
+    [[ -n "$rc" ]] && echo "Run 'source $rc' or open a new terminal to update your PATH."
+    echo ""
+    echo "The repository at $REPO_ROOT was not removed."
+    echo "To remove it: rm -rf \"$REPO_ROOT\""
+    echo ""
+}
+
 # --- Main dispatcher ---
 
 main_usage() {
@@ -643,6 +692,7 @@ Commands:
   mbr           Monthly Business Review narrative
 
   config        View or set configuration
+  uninstall     Remove ait from PATH and delete config
 
 Pass a topic string to write, or an existing file to review:
   ait hld "my notes"      write an HLD from notes
@@ -682,6 +732,7 @@ case "$COMMAND" in
     op1)        require_backend; cmd_doc "op1"       "Team goals and investment asks"   "$@" ;;
     mbr)        require_backend; cmd_doc "mbr"       "Month's results and asks"         "$@" ;;
     config)     cmd_config "$@" ;;
+    uninstall)  cmd_uninstall ;;
     --help|-h)  main_usage ;;
     *) echo "Unknown command: $COMMAND" >&2; echo "" >&2; main_usage ;;
 esac

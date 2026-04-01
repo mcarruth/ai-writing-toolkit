@@ -157,25 +157,7 @@ echo ""
 }
 
 action_uninstall() {
-echo ""
-do_remove_from_path
-if [[ -d "$AIT_CONFIG_DIR" ]]; then
-rm -rf "$AIT_CONFIG_DIR"
-echo "✓ Removed ~/.ait"
-else
-echo "✓ No config directory found"
-fi
-local rc
-rc="$(detect_shell_rc)"
-echo ""
-echo "=============================="
-echo "Uninstall complete."
-echo ""
-[[ -n "$rc" ]] && echo "Run 'source $rc' or open a new terminal to update your PATH."
-echo ""
-echo "The repository at $REPO_ROOT was not removed."
-echo "To remove it: rm -rf "$REPO_ROOT""
-echo ""
+    "$BIN_DIR/ait" uninstall
 }
 
 # ─────────────────────────────────────────────
