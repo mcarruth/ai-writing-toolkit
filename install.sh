@@ -2,7 +2,30 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-}")" 2>/dev/null && pwd || echo "")"
+MANAGED_DIR="$HOME/.ai-writing-toolkit"
+
+# ─────────────────────────────────────────────
+# Remote install bootstrap
+# If not running from a proper clone (e.g. curl | bash), clone to
+# ~/.ai-writing-toolkit and re-exec from there.
+# ─────────────────────────────────────────────
+
+if [[ ! -f "$REPO_ROOT/bin/ait" ]]; then
+    if ! command -v git &>/dev/null; then
+        echo "✗ git not found. Install git first." >&2
+        exit 1
+    fi
+    if [[ -d "$MANAGED_DIR" ]]; then
+        echo "  Updating existing installation..."
+        git -C "$MANAGED_DIR" pull --ff-only
+    else
+        echo "  Cloning repository..."
+        git clone https://github.com/mcarruth/ai-writing-toolkit.git "$MANAGED_DIR"
+    fi
+    exec bash "$MANAGED_DIR/install.sh"
+fi
+
 BIN_DIR="$REPO_ROOT/bin"
 MARKER="# ai-writing-toolkit"
 AIT_CONFIG_DIR="$HOME/.ait"

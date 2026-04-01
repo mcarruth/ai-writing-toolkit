@@ -11,10 +11,10 @@ All commands go through a single entrypoint: `ait`.
 ### One-liner (curl)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/mcarruth/ai-writing-toolkit/main/install-remote.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/mcarruth/ai-writing-toolkit/main/install.sh)
 ```
 
-Downloads the repo, runs the installer, and adds `ait` to your PATH. Requires `git` and at least one LLM backend CLI.
+Clones the repo to `~/.ai-writing-toolkit`, runs the installer, and adds `ait` to your PATH. Requires `git` and at least one LLM backend CLI.
 
 ### From a local clone
 
@@ -35,10 +35,10 @@ ait config output-dir ~/work/ait  # optional
 ### Uninstall
 
 ```bash
-./uninstall.sh
+ait uninstall
 ```
 
-Removes the PATH entry from your shell config and deletes `~/.ait`. Does not delete the repository.
+Removes the PATH entry from your shell config and deletes `~/.ait`. For curl installs, also removes `~/.ai-writing-toolkit`.
 
 ---
 

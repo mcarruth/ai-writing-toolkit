@@ -666,8 +666,13 @@ PYEOF
     echo ""
     [[ -n "$rc" ]] && echo "Run 'source $rc' or open a new terminal to update your PATH."
     echo ""
-    echo "The repository at $REPO_ROOT was not removed."
-    echo "To remove it: rm -rf \"$REPO_ROOT\""
+    if [[ "$REPO_ROOT" == "$HOME/.ai-writing-toolkit" ]]; then
+        rm -rf "$REPO_ROOT"
+        echo "✓ Removed $REPO_ROOT"
+    else
+        echo "The repository at $REPO_ROOT was not removed."
+        echo "To remove it: rm -rf \"$REPO_ROOT\""
+    fi
     echo ""
 }
 
