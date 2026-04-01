@@ -254,12 +254,6 @@ ait config output-dir ~/work/ait
 ait config output-dir --clear
 ```
 
-Override any setting per-invocation with environment variables:
-
-```bash
-AIT_BACKEND=kiro ait research "some topic"
-AIT_MODEL=claude-sonnet-4-6 ait hld "my notes"
-```
 
 ### Customizing skills
 
