@@ -648,6 +648,19 @@ open('$AIT_CONFIG_FILE', 'w').write(content)
     fi
 }
 
+# --- Subcommand: update ---
+
+cmd_update() {
+    echo ""
+    echo "Pulling latest changes…"
+    git -C "$REPO_ROOT" pull
+    chmod +x "$SCRIPT_DIR/ait"
+    echo ""
+    echo "=============================="
+    echo "Update complete. Config and settings unchanged."
+    echo ""
+}
+
 # --- Subcommand: uninstall ---
 
 cmd_uninstall() {
@@ -723,6 +736,7 @@ Commands:
   mbr           Monthly Business Review narrative
 
   config        View or set configuration
+  update        Pull latest changes from GitHub
   uninstall     Remove ait from PATH and delete config
 
 Pass a topic string to write, or an existing file to review:
@@ -740,7 +754,7 @@ Common flags:
   -h, --help             Show help
 
 Backend: $AIT_BACKEND (model: $AIT_MODEL)
-  Change with: ait config backend <kiro|claude-code|ollama>
+  Change with: ait config backend <claude-code|kiro|ollama>
 EOF
     exit 1
 }
@@ -763,6 +777,7 @@ case "$COMMAND" in
     op1)        require_backend; cmd_doc "op1"       "Team goals and investment asks"   "$@" ;;
     mbr)        require_backend; cmd_doc "mbr"       "Month's results and asks"         "$@" ;;
     config)     cmd_config "$@" ;;
+    update)     cmd_update ;;
     uninstall)  cmd_uninstall ;;
     --help|-h)  main_usage ;;
     *) echo "Unknown command: $COMMAND" >&2; echo "" >&2; main_usage ;;
