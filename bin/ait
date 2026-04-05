@@ -25,6 +25,21 @@ read_config_val() {
     fi
 }
 
+ollama_best_model() {
+    local preferred=(qwen2.5:7b gemma3:12b llama3.2:latest)
+    local installed
+    installed=$(curl -s http://localhost:11434/api/tags 2>/dev/null \
+        | python3 -c "import json,sys; [print(m['name']) for m in json.loads(sys.stdin.read()).get('models',[])]" 2>/dev/null)
+    for model in "${preferred[@]}"; do
+        if printf '%s\n' "$installed" | grep -qF "$model"; then
+            printf '%s' "$model"
+            return
+        fi
+    done
+    # Fall back to whatever is installed first
+    printf '%s' "$(printf '%s\n' "$installed" | head -1)"
+}
+
 load_config() {
     local val
     val=$(read_config_val output_dir)
@@ -37,7 +52,7 @@ load_config() {
         case "$AIT_BACKEND" in
             kiro)        AIT_MODEL="$DEFAULT_MODEL_KIRO" ;;
             claude-code) AIT_MODEL="$DEFAULT_MODEL_CLAUDE" ;;
-            ollama)      AIT_MODEL="qwen2.5:7b" ;;
+            ollama)      AIT_MODEL=$(ollama_best_model) ;;
             *)           AIT_MODEL="$DEFAULT_MODEL_CLAUDE" ;;
         esac
     fi

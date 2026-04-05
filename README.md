@@ -9,7 +9,7 @@ All commands go through a single entrypoint: `ait`.
 ## Requirements
 
 - `git`
-- At least one LLM backend: `claude` (Claude Code), `kiro`, or `ollama` (local, no account needed)
+- At least one LLM backend (see below)
 
 ---
 
@@ -21,7 +21,7 @@ All commands go through a single entrypoint: `ait`.
 bash <(curl -fsSL https://raw.githubusercontent.com/mcarruth/ai-writing-toolkit/main/install.sh)
 ```
 
-Clones the repo to `~/.ai-writing-toolkit`, runs the installer, and adds `ait` to your PATH.
+Clones the repo to `~/.ai-writing-toolkit`, runs the installer, and adds `ait` to your PATH. The installer auto-detects any supported backend that's already installed.
 
 ### From a local clone
 
@@ -39,7 +39,13 @@ ait config model claude-sonnet-4-6
 ait config output-dir ~/work/ait  # optional
 ```
 
-If no backend is configured, `ait` will prompt you on first run.
+### Update
+
+```bash
+ait update
+```
+
+Pulls the latest changes from GitHub. Config and settings are unchanged.
 
 ### Uninstall
 
@@ -48,6 +54,49 @@ ait uninstall
 ```
 
 Removes the PATH entry from your shell config and deletes `~/.ait`. For curl installs, also removes `~/.ai-writing-toolkit`.
+
+---
+
+## LLM Backends
+
+The installer auto-detects whichever backend is already installed. You can switch at any time with `ait config backend <name>`.
+
+### Claude Code (`claude-code`)
+
+Requires an Anthropic or Claude.ai account.
+
+```bash
+npm install -g @anthropic-ai/claude-code
+ait config backend claude-code
+ait config model claude-sonnet-4-6
+```
+
+### Kiro (`kiro`)
+
+Requires a Kiro account.
+
+```bash
+curl -fsSL https://cli.kiro.dev/install | bash
+ait config backend kiro
+```
+
+### Ollama (`ollama`)
+
+Runs models locally — no account or API key needed.
+
+```bash
+# Install Ollama: https://ollama.com/download
+ollama pull qwen2.5:7b   # recommended starting model
+ait config backend ollama
+```
+
+Ollama does not include any models by default — you need to pull at least one before using `ait`. If no model is configured, `ait` will pick the best available from your installed models in this order: `qwen2.5:7b`, `gemma3:12b`, `llama3.2`. You can override at any time:
+
+```bash
+ait config model qwen2.5:7b
+```
+
+Output quality depends on the model. Smaller models (7B) tend toward bullet points over narrative prose — this is a model limitation, not a configuration issue.
 
 ---
 
@@ -250,6 +299,7 @@ Reviews are saved alongside the document they review, named `<document>-review.m
 ait config                        # show all current values
 ait config backend claude-code    # set backend (claude-code, kiro, ollama)
 ait config model claude-sonnet-4-6
+ait config model qwen2.5:7b       # for ollama
 ait config output-dir ~/work/ait
 ait config output-dir --clear
 ```
