@@ -106,6 +106,9 @@ echo "✓ claude found"
 elif command -v kiro-cli &>/dev/null; then
 found="kiro"
 echo "✓ kiro-cli found"
+elif command -v ollama &>/dev/null; then
+found="ollama"
+echo "✓ ollama found"
 fi
 
 if [[ -z "$found" ]]; then
@@ -113,8 +116,9 @@ echo ""
 echo "  No supported LLM CLI found. Install one before using ait:"
 echo "  npm install -g @anthropic-ai/claude-code"
 echo "  curl -fsSL https://cli.kiro.dev/install | bash"
+echo "  curl -fsSL https://ollama.com/install.sh | sh  (local, no account needed)"
 echo ""
-echo "  Then run: ait config backend <claude-code|kiro>"
+echo "  Then run: ait config backend <claude-code|kiro|ollama>"
 else
 mkdir -p "$AIT_CONFIG_DIR"
 touch "$AIT_CONFIG_DIR/config"

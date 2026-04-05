@@ -9,7 +9,7 @@ All commands go through a single entrypoint: `ait`.
 ## Requirements
 
 - `git`
-- At least one LLM backend CLI: `claude` (Claude Code), `kiro`, or a custom command
+- At least one LLM backend: `claude` (Claude Code), `kiro`, or `ollama` (local, no account needed)
 
 ---
 
@@ -34,7 +34,7 @@ cd ai-writing-toolkit
 Open a new terminal or run `source ~/.zshrc`, then configure your backend:
 
 ```bash
-ait config backend claude-code   # or: kiro, custom
+ait config backend claude-code   # or: kiro, ollama
 ait config model claude-sonnet-4-6
 ait config output-dir ~/work/ait  # optional
 ```
@@ -248,7 +248,7 @@ Reviews are saved alongside the document they review, named `<document>-review.m
 
 ```bash
 ait config                        # show all current values
-ait config backend claude-code    # set backend (claude-code, kiro, custom)
+ait config backend claude-code    # set backend (claude-code, kiro, ollama)
 ait config model claude-sonnet-4-6
 ait config output-dir ~/work/ait
 ait config output-dir --clear

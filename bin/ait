@@ -37,6 +37,7 @@ load_config() {
         case "$AIT_BACKEND" in
             kiro)        AIT_MODEL="$DEFAULT_MODEL_KIRO" ;;
             claude-code) AIT_MODEL="$DEFAULT_MODEL_CLAUDE" ;;
+            ollama)      AIT_MODEL="qwen2.5:7b" ;;
             *)           AIT_MODEL="$DEFAULT_MODEL_CLAUDE" ;;
         esac
     fi
@@ -64,9 +65,17 @@ require_backend() {
                 exit 1
             fi
             ;;
+        ollama)
+            if ! command -v ollama &>/dev/null; then
+                echo "Error: ollama not found (backend=ollama)." >&2
+                echo "Install: https://ollama.com/download" >&2
+                echo "Or switch backend: ait config backend claude-code" >&2
+                exit 1
+            fi
+            ;;
         *)
             echo "Error: unknown backend '$AIT_BACKEND'." >&2
-            echo "Supported: kiro, claude-code" >&2
+            echo "Supported: kiro, claude-code, ollama" >&2
             exit 1
             ;;
     esac
@@ -167,6 +176,21 @@ run_backend() {
             ;;
         claude-code)
             claude -p --model "$AIT_MODEL" < "$infile" 2>/dev/null
+            ;;
+        ollama)
+            local prompt_json
+            prompt_json=$(python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))" < "$infile")
+            curl -s http://localhost:11434/api/generate \
+                -d "{\"model\":\"${AIT_MODEL}\",\"prompt\":${prompt_json}}" \
+                | python3 -c "
+import json, sys
+for line in sys.stdin:
+    line = line.strip()
+    if line:
+        obj = json.loads(line)
+        print(obj.get('response', ''), end='', flush=True)
+print()
+"
             ;;
     esac
 }
@@ -552,14 +576,16 @@ cmd_config() {
 
 Keys:
   output-dir [path]   Default output directory
-  backend [name]      LLM backend: kiro, claude-code
+  backend [name]      LLM backend: kiro, claude-code, ollama
   model [name]        Model name
 
 Use --clear to remove a value.
 
 Examples:
   ait config backend claude-code
+  ait config backend ollama
   ait config model claude-sonnet-4-6
+  ait config model qwen2.5:7b
   ait config output-dir ~/work/ait"
 
     if [[ $# -eq 0 ]]; then
@@ -714,7 +740,7 @@ Common flags:
   -h, --help             Show help
 
 Backend: $AIT_BACKEND (model: $AIT_MODEL)
-  Change with: ait config backend <kiro|claude-code>
+  Change with: ait config backend <kiro|claude-code|ollama>
 EOF
     exit 1
 }
