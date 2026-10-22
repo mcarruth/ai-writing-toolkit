@@ -218,7 +218,7 @@ ait coe coe.md                                # review
 Team mission, current state, ranked goals, investment asks tied to measurable outcomes, dependencies, and tradeoffs.
 
 ```bash
-ait op1 "ads agent platform: three SDEs, launch orchestrator to 9 product teams by unBoxed" -c context.md
+ait op1 "payments platform: four SDEs, migrate checkout to the new ledger by Q3" -c context.md
 ait op1 -f goals.md -c headcount.md -o op1.md
 ait op1 op1.md                                # review
 ```
@@ -246,7 +246,7 @@ The commands are designed to chain. Output from each step feeds the next via `-c
 ait research "agent memory architectures for multi-agent LLM systems" -o research.md
 
 # Step 2: explore the design space
-ait options "how to scope memory per sub-agent in our orchestrator" -c research.md -o options.md
+ait options "how to scope memory per sub-agent in a multi-agent system" -c research.md -o options.md
 
 # Step 3: draft the HLD using both prior outputs as context
 ait hld "going with option 2 (scoped views over a centralized store)" \
